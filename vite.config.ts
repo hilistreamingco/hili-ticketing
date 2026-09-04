@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: "dist/spa",
   },
+  envPrefix: ["VITE_", "NEXT_PUBLIC_"],
   plugins: [react(), expressPlugin()],
   resolve: {
     alias: {
