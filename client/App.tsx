@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { CalendarDays, LogIn, TicketCheck, Users } from "lucide-react";
 import Index from "./pages/Index";
 import EventPage from "./pages/EventPage";
+import UpcomingPage from "./pages/UpcomingPage";
 import TicketSelectionPage from "./pages/TicketSelectionPage";
 import AttendeePage from "./pages/AttendeePage";
 import CheckoutPage from "./pages/CheckoutPage";
@@ -38,6 +39,7 @@ function App() {
     <Route path="/" element={<Index />} />
     <Route path="/events" element={<EventsPage />} />
     <Route path="/events/:slug" element={<EventPage />} />
+    <Route path="/upcoming" element={<UpcomingPage />} />
     <Route path="/tickets/:slug" element={<TicketSelectionPage />} />
     <Route path="/attendee/:slug" element={<AttendeePage />} />
     <Route path="/checkout/:slug" element={<CheckoutPage />} />
