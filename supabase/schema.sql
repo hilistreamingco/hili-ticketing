@@ -7,7 +7,7 @@ create table public.organizations (id uuid primary key default gen_random_uuid()
 create table public.events (
   id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade,
   slug text not null unique, name text not null, short_description text, description text, poster_path text, venue text, address text, city text,
-  event_date date, start_time time, end_time time, timezone text not null default 'Africa/Nairobi', status public.event_status not null default 'draft',
+  event_date date, start_time time, end_time time, timezone text not null default 'Africa/Nairobi', venue_map_url text, venue_latitude numeric, venue_longitude numeric, status public.event_status not null default 'draft',
   is_current boolean not null default false, theme jsonb not null default '{}'::jsonb, settings jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
