@@ -6,9 +6,13 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { CalendarDays, CreditCard, LayoutDashboard, LogIn, TicketCheck, Users } from "lucide-react";
+import { CalendarDays, LayoutDashboard, LogIn, TicketCheck, Users } from "lucide-react";
 import Index from "./pages/Index";
 import EventPage from "./pages/EventPage";
+import TicketSelectionPage from "./pages/TicketSelectionPage";
+import AttendeePage from "./pages/AttendeePage";
+import CheckoutPage from "./pages/CheckoutPage";
+import { TermsPage, PrivacyPage } from "./pages/LegalPages";
 import NotFound from "./pages/NotFound";
 import PlaceholderPage from "./components/PlaceholderPage";
 import Layout from "./components/layout/Layout";
@@ -26,9 +30,13 @@ function App() {
     <Route path="/" element={<Index />} />
     <Route path="/events" element={<EventsPage />} />
     <Route path="/events/:slug" element={<EventPage />} />
+    <Route path="/tickets/:slug" element={<TicketSelectionPage />} />
+    <Route path="/attendee/:slug" element={<AttendeePage />} />
+    <Route path="/checkout/:slug" element={<CheckoutPage />} />
+    <Route path="/terms" element={<TermsPage />} />
+    <Route path="/privacy" element={<PrivacyPage />} />
     <Route path="/my-tickets" element={<PlaceholderPage title="Your tickets, all in one place" description="Sign in to see upcoming events, digital tickets, and QR codes." icon={TicketCheck} />} />
     <Route path="/create-event" element={<PlaceholderPage title="Create something people will remember" description="The event creation studio is being prepared for organizers." icon={CalendarDays} />} />
-    <Route path="/checkout/:slug" element={<PlaceholderPage title="Simple, secure checkout" description="Checkout with attendee details and M-Pesa will be built here next." icon={CreditCard} />} />
     <Route path="/login" element={<PlaceholderPage title="Welcome back" description="Account login and registration will be available here." icon={LogIn} />} />
     <Route path="/admin" element={<PlaceholderPage title="Organizer dashboard" description="Manage events, ticket sales, attendees, and check-ins from one place." icon={LayoutDashboard} />} />
     <Route path="/admin/attendees" element={<PlaceholderPage title="Attendees" description="Search, filter, and manage your event attendees." icon={Users} />} />
