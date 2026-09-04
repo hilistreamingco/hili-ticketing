@@ -6,6 +6,7 @@
     "module": "ESNext",
     "skipLibCheck": true,
 
+    
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
@@ -16,6 +17,7 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
 
+    
     "strict": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
@@ -23,6 +25,7 @@
     "noFallthroughCasesInSwitch": false,
     "strictNullChecks": false,
 
+    
     "paths": {
       "@/*": ["./client/*"],
       "@shared/*": ["./shared/*"]
@@ -32,7 +35,6 @@
     "client/**/*",
     "server/**/*",
     "shared/**/*",
-    "scripts/**/*.ts",
     "vite.config.ts",
     "vite.config.server.ts"
   ],
