@@ -1,0 +1,134 @@
+/** @import must precede all other statements */
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap");
+
+@import "tailwindcss";
+
+/* Theme, content globs, and plugins are declared in tailwind.config.ts. */
+@config "../tailwind.config.ts";
+
+@layer base {
+  /**
+   * Hili Ticketing brand theme
+   * tailwind.config.ts expects the following color variables to be expressed as HSL values.
+   * A different format will require also updating the theme in tailwind.config.ts.
+  */
+  :root {
+    --background: 45 33% 96%;
+    --foreground: 0 0% 4%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 4%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 4%;
+
+    --primary: 78 72% 36%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 4%;
+    --secondary-foreground: 78 100% 57%;
+
+    --muted: 30 20% 93%;
+    --muted-foreground: 240 8% 44%;
+
+    --accent: 78 100% 57%;
+    --accent-foreground: 240 25% 8%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 30 18% 89%;
+    --input: 30 18% 89%;
+    --ring: 78 100% 57%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 240 27% 7%;
+    --sidebar-foreground: 30 15% 90%;
+    --sidebar-primary: 78 100% 57%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 20% 14%;
+    --sidebar-accent-foreground: 30 15% 90%;
+    --sidebar-border: 240 18% 16%;
+    --sidebar-ring: 78 100% 57%;
+  }
+
+  .dark {
+    --background: 240 27% 7%;
+    --foreground: 30 15% 94%;
+
+    --card: 240 24% 10%;
+    --card-foreground: 30 15% 94%;
+
+    --popover: 240 24% 10%;
+    --popover-foreground: 30 15% 94%;
+
+    --primary: 16 90% 58%;
+    --primary-foreground: 240 25% 8%;
+
+    --secondary: 168 40% 28%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 240 18% 16%;
+    --muted-foreground: 240 8% 65%;
+
+    --accent: 78 100% 57%;
+    --accent-foreground: 240 25% 8%;
+
+    --destructive: 0 62.8% 40%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 240 18% 18%;
+    --input: 240 18% 18%;
+    --ring: 16 90% 58%;
+
+    --sidebar-background: 240 27% 6%;
+    --sidebar-foreground: 30 15% 90%;
+    --sidebar-primary: 16 90% 58%;
+    --sidebar-primary-foreground: 240 25% 8%;
+    --sidebar-accent: 240 20% 13%;
+    --sidebar-accent-foreground: 30 15% 90%;
+    --sidebar-border: 240 18% 15%;
+    --sidebar-ring: 16 90% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-display;
+  }
+
+  :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  pre,
+  code {
+    overflow-x: auto;
+    white-space: pre;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
