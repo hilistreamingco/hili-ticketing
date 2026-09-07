@@ -39,7 +39,9 @@ create table public.organization_members (
 alter table public.events enable row level security;
 alter table public.ticket_types enable row level security;
 alter table public.tickets enable row level security;
+alter table public.orders enable row level security;
 alter table public.organization_members enable row level security;
+alter publication supabase_realtime add table public.events, public.ticket_types, public.tickets;
 create policy "published events are public" on public.events for select using (status = 'published');
 create policy "visible ticket types are public" on public.ticket_types for select using (is_visible = true and is_active = true);
 create policy "ticket owner access is server controlled" on public.tickets for all using (false) with check (false);
@@ -48,6 +50,8 @@ create or replace function public.is_hili_admin(target_organization uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.organization_members where organization_id = target_organization and user_id = auth.uid() and role in ('super_admin', 'event_manager'));
 $$;
+create policy "admins can view tickets" on public.tickets for select to authenticated using (exists (select 1 from public.events e where e.id = event_id and public.is_hili_admin(e.organization_id)));
+create policy "admins can view orders" on public.orders for select to authenticated using (exists (select 1 from public.events e where e.id = event_id and public.is_hili_admin(e.organization_id)));
 create policy "organizers can manage their events" on public.events for all to authenticated using (public.is_hili_admin(organization_id)) with check (public.is_hili_admin(organization_id));
 create policy "organizers can manage ticket types" on public.ticket_types for all to authenticated using (exists (select 1 from public.events e where e.id = event_id and public.is_hili_admin(e.organization_id))) with check (exists (select 1 from public.events e where e.id = event_id and public.is_hili_admin(e.organization_id)));
 
