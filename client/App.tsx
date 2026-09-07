@@ -15,6 +15,7 @@ import FuturePage from "./pages/FuturePage";
 import TicketSelectionPage from "./pages/TicketSelectionPage";
 import AttendeePage from "./pages/AttendeePage";
 import CheckoutPage from "./pages/CheckoutPage";
+import ContactPage from "./pages/ContactPage";
 import { TermsPage, PrivacyPage } from "./pages/LegalPages";
 import AdminPage from "./pages/AdminPage";
 import NotFound from "./pages/NotFound";
@@ -47,6 +48,7 @@ function App() {
     <Route path="/checkout/:slug" element={<CheckoutPage />} />
     <Route path="/terms" element={<TermsPage />} />
     <Route path="/privacy" element={<PrivacyPage />} />
+    <Route path="/contact" element={<ContactPage />} />
     <Route path="/my-tickets" element={<PlaceholderPage title="Your tickets, all in one place" description="Sign in to see upcoming events, digital tickets, and QR codes." icon={TicketCheck} />} />
     <Route path="/create-event" element={<PlaceholderPage title="Create something people will remember" description="The event creation studio is being prepared for organizers." icon={CalendarDays} />} />
     <Route path="/login" element={<PlaceholderPage title="Welcome back" description="Account login and registration will be available here." icon={LogIn} />} />

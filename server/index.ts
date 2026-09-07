@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
 import { handleMpesaCallback, handleMpesaStkPush, handleMpesaStatus } from "./routes/mpesa";
+import { handleContactEmail } from "./routes/contact";
 
 export function createServer() {
   const app = express();
@@ -19,6 +20,7 @@ export function createServer() {
   });
 
   app.get("/api/demo", handleDemo);
+  app.post("/api/contact", handleContactEmail);
   app.post("/api/payments/mpesa/stk-push", handleMpesaStkPush);
   app.post("/api/payments/mpesa/callback", handleMpesaCallback);
   app.get("/api/payments/mpesa/status/:checkoutRequestId", handleMpesaStatus);

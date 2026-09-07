@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { RequestHandler } from "express";
 import { attachCheckoutRequest, createPendingOrder, finalizePaidOrder, getNotificationStatus, getOrderContact, getOrderTickets, markNotificationFailed, markNotificationSent, markOrderFailed } from "../services/order";
 import { sendTicketEmail } from "../services/tickets";
@@ -13,9 +14,28 @@ const darajaBase = () => process.env.MPESA_ENVIRONMENT === "production" ? "https
 const missingConfig = ["MPESA_CONSUMER_KEY", "MPESA_CONSUMER_SECRET", "MPESA_PASSKEY", "MPESA_TILL_NUMBER", "MPESA_CALLBACK_URL", "SUPABASE_SERVICE_ROLE_KEY"];
 const paymentStatuses = new Map<string, "Pending" | "Paid" | "Failed">();
 
+async function deliverTickets(orderId: string) {
+  const status = await getNotificationStatus(orderId);
+  if (status === "sent") return;
+  try {
+    const [contact, tickets] = await Promise.all([getOrderContact(orderId), getOrderTickets(orderId)]);
+    for (const ticket of tickets) {
+      const event = Array.isArray(ticket.event) ? ticket.event[0] : ticket.event;
+      const tier = Array.isArray(ticket.ticket_type) ? ticket.ticket_type[0] : ticket.ticket_type;
+      await sendTicketEmail(contact.purchaser_email, { ticketNumber: ticket.ticket_number, attendeeName: ticket.attendee_name, eventName: event?.name || "Hili event", eventDate: event?.event_date || "Date to be confirmed", ticketTier: tier?.name || "Ticket" });
+    }
+    await markNotificationSent(orderId, `tickets-${orderId}`);
+  } catch (error) {
+    await markNotificationFailed(orderId, error instanceof Error ? error.message : "Ticket email failed");
+    throw error;
+  }
+}
+
 export const handleMpesaStkPush: RequestHandler = async (req, res) => {
-  const absent = missingConfig.filter((key) => !process.env[key]);
-  if (absent.length) { res.status(503).json({ error: "M-Pesa is not configured", missing: absent }); return; }
+  const mockMode = process.env.MPESA_MODE === "mock";
+  const requiredConfig = mockMode ? ["SUPABASE_SERVICE_ROLE_KEY"] : missingConfig;
+  const absent = requiredConfig.filter((key) => !process.env[key]);
+  if (absent.length) { res.status(503).json({ error: mockMode ? "Mock payments require Supabase server credentials" : "M-Pesa is not configured", missing: absent }); return; }
   const body = req.body as Record<string, unknown>;
   const phone = typeof body.phone === "string" ? normalizePhone(body.phone) : "";
   const amount = typeof body.amount === "number" ? body.amount : 0;
@@ -35,6 +55,15 @@ export const handleMpesaStkPush: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("Could not create pending order", error);
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not create order" }); return;
+  }
+
+  if (mockMode) {
+    const checkoutRequestId = `MOCK-${randomUUID()}`;
+    await attachCheckoutRequest(order.id, checkoutRequestId);
+    paymentStatuses.set(checkoutRequestId, "Pending");
+    setTimeout(() => { void finalizePaidOrder(checkoutRequestId, `MOCK-${Date.now()}`).then(async (result) => { await deliverTickets(result.order_id); paymentStatuses.set(checkoutRequestId, "Paid"); console.info("Mock payment finalized", result.order_id); }).catch((error) => { paymentStatuses.set(checkoutRequestId, "Failed"); console.error("Mock payment finalization failed", error); }); }, 1200);
+    res.status(202).json({ checkoutRequestId, customerMessage: "Mock payment accepted for testing" });
+    return;
   }
 
   const timestamp = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi", hour12: false }).replace(/[^0-9]/g, "").slice(0, 14);
@@ -72,22 +101,10 @@ export const handleMpesaCallback: RequestHandler = async (req, res) => {
   try {
     const finalized = await finalizePaidOrder(checkoutRequestId, receipt ? String(receipt) : undefined);
     paymentStatuses.set(checkoutRequestId, "Paid");
-    {
-      const status = await getNotificationStatus(finalized.order_id);
-      if (status !== "sent") {
-        try {
-          const [contact, tickets] = await Promise.all([getOrderContact(finalized.order_id), getOrderTickets(finalized.order_id)]);
-          for (const ticket of tickets) {
-            const event = Array.isArray(ticket.event) ? ticket.event[0] : ticket.event;
-            const tier = Array.isArray(ticket.ticket_type) ? ticket.ticket_type[0] : ticket.ticket_type;
-            await sendTicketEmail(contact.purchaser_email, { ticketNumber: ticket.ticket_number, attendeeName: ticket.attendee_name, eventName: event?.name || "Hili event", eventDate: event?.event_date || "Date to be confirmed", ticketTier: tier?.name || "Ticket" });
-          }
-          await markNotificationSent(finalized.order_id, `tickets-${finalized.order_id}`);
-        } catch (emailError) {
-          await markNotificationFailed(finalized.order_id, emailError instanceof Error ? emailError.message : "Ticket email failed");
-          console.error("Ticket email delivery failed; order remains paid for retry", emailError);
-        }
-      }
+    try {
+      await deliverTickets(finalized.order_id);
+    } catch (emailError) {
+      console.error("Ticket email delivery failed; order remains paid for retry", emailError);
     }
   } catch (error) {
     paymentStatuses.set(checkoutRequestId, "Failed");

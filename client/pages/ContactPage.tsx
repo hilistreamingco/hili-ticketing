@@ -1,0 +1,14 @@
+import { useState } from "react";
+import { ArrowLeft, Loader2, Send, TriangleAlert } from "lucide-react";
+import { Link } from "react-router-dom";
+import Layout from "@/components/layout/Layout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
+export default function ContactPage() {
+  const [form, setForm] = useState({ name: "", email: "", message: "" });
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); setStatus("sending"); try { const response = await fetch("/api/contact", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) }); if (!response.ok) throw new Error(); setStatus("sent"); } catch { setStatus("error"); } };
+  return <Layout><div className="container max-w-2xl py-16 md:py-24"><Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft className="h-4 w-4" /> Back home</Link><p className="mt-10 text-[10px] font-semibold uppercase tracking-[.3em] text-primary">Get in touch</p><h1 className="mt-3 font-display text-5xl font-bold tracking-tight">Talk to Hili.</h1><p className="mt-4 max-w-lg leading-7 text-muted-foreground">Questions about an event, ticketing, or working together? Send us a message and we’ll get back to you.</p>{status === "sent" ? <div className="mt-10 rounded-3xl bg-muted p-7"><h2 className="font-display text-2xl font-bold">Message sent.</h2><p className="mt-2 text-muted-foreground">Thanks for reaching out. We’ll reply to your email shortly.</p></div> : <form onSubmit={submit} className="mt-10 space-y-5 rounded-3xl border border-border bg-card p-6 shadow-card"><label className="block text-sm font-semibold">Name<Input className="mt-2 h-12" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><label className="block text-sm font-semibold">Email<Input className="mt-2 h-12" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label className="block text-sm font-semibold">Message<Textarea className="mt-2 min-h-36" value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} maxLength={5000} required /></label>{status === "error" && <p className="flex gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-700"><TriangleAlert className="h-4 w-4" />Message could not be sent. Email hilistreaming.co@gmail.com directly.</p>}<Button className="h-12 w-full" disabled={status === "sending"}>{status === "sending" ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending</> : <><Send className="mr-2 h-4 w-4" />Send message</>}</Button></form>}</div></Layout>;
+}
