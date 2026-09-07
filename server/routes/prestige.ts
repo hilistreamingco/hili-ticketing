@@ -49,9 +49,9 @@ async function getSessionUser(authHeader: string | undefined) {
   return { user: data.user, role: member?.role as string | undefined };
 }
 
-const PRESTIGE_ROLES = ["super_admin", "hili_admin", "event_manager", "prestige_admin", "prestige_staff"];
-const PRESTIGE_ADMIN_ROLES = ["super_admin", "hili_admin", "prestige_admin"];
-const HILI_ROLES = ["super_admin", "hili_admin", "event_manager"];
+const PRESTIGE_ROLES = ["hili_admin", "prestige_admin"];
+const PRESTIGE_ADMIN_ROLES = ["hili_admin", "prestige_admin"];
+const HILI_ROLES = ["hili_admin"];
 
 function canAccessPrestige(role?: string) {
   return role ? PRESTIGE_ROLES.includes(role) : false;

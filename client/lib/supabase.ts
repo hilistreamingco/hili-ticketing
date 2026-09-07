@@ -34,7 +34,10 @@ export type AdminTicketType = {
   price_kes: number;
   quantity_total: number;
   quantity_sold: number;
+  min_per_order: number;
   max_per_order: number;
+  sales_start: string | null;
+  sales_end: string | null;
   is_visible: boolean;
   is_active: boolean;
   sort_order: number;
@@ -89,8 +92,24 @@ export async function getAdminTicketTypes(eventId: string) {
 
 export async function saveAdminTicketType(ticket: Partial<AdminTicketType> & { id?: string; event_id: string }) {
   if (!supabase) throw new Error("Supabase is not configured");
-  const payload = { event_id: ticket.event_id, name: ticket.name, description: ticket.description, price_kes: ticket.price_kes, quantity_total: ticket.quantity_total, max_per_order: ticket.max_per_order, is_visible: ticket.is_visible, is_active: ticket.is_active, sort_order: ticket.sort_order };
-  const query = ticket.id && !ticket.id.startsWith("new-") ? supabase.from("ticket_types").update(payload).eq("id", ticket.id) : supabase.from("ticket_types").insert(payload);
+  const payload = {
+    event_id: ticket.event_id,
+    name: ticket.name,
+    description: ticket.description ?? null,
+    price_kes: ticket.price_kes,
+    quantity_total: ticket.quantity_total,
+    min_per_order: ticket.min_per_order ?? 1,
+    max_per_order: ticket.max_per_order,
+    sales_start: ticket.sales_start ?? null,
+    sales_end: ticket.sales_end ?? null,
+    is_visible: ticket.is_visible,
+    is_active: ticket.is_active,
+    sort_order: ticket.sort_order,
+  };
+  const query =
+    ticket.id && !ticket.id.startsWith("new-")
+      ? supabase.from("ticket_types").update(payload).eq("id", ticket.id)
+      : supabase.from("ticket_types").insert(payload);
   const { data, error } = await query.select().single();
   if (error) throw error;
   return data as AdminTicketType;
@@ -148,15 +167,16 @@ export async function getCurrentUserRole(): Promise<UserRole | null> {
 }
 
 export function isHiliAdminRole(role: UserRole | null): boolean {
-  return role !== null && (["super_admin", "hili_admin", "event_manager"] as UserRole[]).includes(role);
+  return role === "hili_admin";
 }
 
 export function isPrestigeRole(role: UserRole | null): boolean {
-  return role !== null && (["super_admin", "hili_admin", "event_manager", "prestige_admin", "prestige_staff"] as UserRole[]).includes(role);
+  return role === "hili_admin" || role === "prestige_admin";
 }
 
+// hili_admin is superadmin — they can do everything prestige_admin can
 export function isPrestigeAdminRole(role: UserRole | null): boolean {
-  return role !== null && (["super_admin", "hili_admin", "prestige_admin"] as UserRole[]).includes(role);
+  return role === "hili_admin" || role === "prestige_admin";
 }
 
 // ── Prestige API client helpers ────────────────────────────────────────────

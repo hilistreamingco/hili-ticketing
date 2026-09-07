@@ -7,29 +7,16 @@ export interface DemoResponse {
 }
 
 // ── Roles ──────────────────────────────────────────────────────────────────
-export type UserRole =
-  | "super_admin"
-  | "hili_admin"
-  | "event_manager"
-  | "prestige_admin"
-  | "prestige_staff"
-  | "finance"
-  | "checkin_staff"
-  | "event_staff";
+// Two roles only:
+//   hili_admin    — full access: event management, site config, AND prestige ops
+//   prestige_admin — operational access: orders, payments, tickets only
+export type UserRole = "hili_admin" | "prestige_admin";
 
-export const HILI_ROLES: UserRole[] = ["super_admin", "hili_admin", "event_manager"];
-export const PRESTIGE_ROLES: UserRole[] = [
-  "super_admin",
-  "hili_admin",
-  "event_manager",
-  "prestige_admin",
-  "prestige_staff",
-];
-export const PRESTIGE_ADMIN_ROLES: UserRole[] = [
-  "super_admin",
-  "hili_admin",
-  "prestige_admin",
-];
+/** Roles that can access the Hili event/site management dashboard */
+export const HILI_ROLES: UserRole[] = ["hili_admin"];
+
+/** Roles that can access the Prestige operations dashboard */
+export const PRESTIGE_ROLES: UserRole[] = ["hili_admin", "prestige_admin"];
 
 // ── Payment / Fulfillment status ───────────────────────────────────────────
 export type PaymentStatus =

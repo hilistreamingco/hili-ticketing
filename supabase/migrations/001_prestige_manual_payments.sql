@@ -11,14 +11,8 @@ alter table public.organization_members
 alter table public.organization_members
   add constraint organization_members_role_check
   check (role in (
-    'super_admin',
     'hili_admin',
-    'event_manager',
-    'prestige_admin',
-    'prestige_staff',
-    'finance',
-    'checkin_staff',
-    'event_staff'
+    'prestige_admin'
   ));
 
 -- ── 2. Orders table: new columns ────────────────────────────
@@ -82,36 +76,36 @@ alter table public.audit_log enable row level security;
 
 -- ── 5. Helper functions ──────────────────────────────────────
 
--- Check if the current user is a Prestige operator (any prestige role)
+-- Check if the current user is a Prestige operator (hili_admin or prestige_admin)
 create or replace function public.is_prestige_operator(target_organization uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.organization_members
     where organization_id = target_organization
       and user_id = auth.uid()
-      and role in ('super_admin', 'hili_admin', 'event_manager', 'prestige_admin', 'prestige_staff')
+      and role in ('hili_admin', 'prestige_admin')
   );
 $$;
 
--- Check if the current user is a Prestige admin or higher
+-- Check if the current user is a Prestige admin (both roles qualify)
 create or replace function public.is_prestige_admin(target_organization uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.organization_members
     where organization_id = target_organization
       and user_id = auth.uid()
-      and role in ('super_admin', 'hili_admin', 'prestige_admin')
+      and role in ('hili_admin', 'prestige_admin')
   );
 $$;
 
--- Update is_hili_admin to also recognize the new 'hili_admin' role alias
+-- hili_admin is the only Hili admin role
 create or replace function public.is_hili_admin(target_organization uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.organization_members
     where organization_id = target_organization
       and user_id = auth.uid()
-      and role in ('super_admin', 'hili_admin', 'event_manager')
+      and role = 'hili_admin'
   );
 $$;
 
