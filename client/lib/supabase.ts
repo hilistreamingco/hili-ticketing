@@ -26,6 +26,20 @@ export type AdminEvent = {
   settings: Record<string, unknown>;
 };
 
+export type AdminTicketType = {
+  id: string;
+  event_id: string;
+  name: string;
+  description: string | null;
+  price_kes: number;
+  quantity_total: number;
+  quantity_sold: number;
+  max_per_order: number;
+  is_visible: boolean;
+  is_active: boolean;
+  sort_order: number;
+};
+
 export type AdminTicket = {
   id: string;
   ticket_number: string;
@@ -52,11 +66,40 @@ export async function getAdminEvents() {
   return (data || []) as AdminEvent[];
 }
 
+export async function createAdminEvent(event: Omit<AdminEvent, "id" | "created_at" | "updated_at">) {
+  if (!supabase) throw new Error("Supabase is not configured");
+  const { data, error } = await supabase.from("events").insert(event).select().single();
+  if (error) throw error;
+  return data as AdminEvent;
+}
+
 export async function saveAdminEvent(event: Partial<AdminEvent> & { id: string }) {
   if (!supabase) throw new Error("Supabase is not configured");
   const { data, error } = await supabase.from("events").update(event).eq("id", event.id).select().single();
   if (error) throw error;
   return data as AdminEvent;
+}
+
+export async function getAdminTicketTypes(eventId: string) {
+  if (!supabase) return [] as AdminTicketType[];
+  const { data, error } = await supabase.from("ticket_types").select("*").eq("event_id", eventId).order("sort_order");
+  if (error) throw error;
+  return (data || []) as AdminTicketType[];
+}
+
+export async function saveAdminTicketType(ticket: Partial<AdminTicketType> & { id?: string; event_id: string }) {
+  if (!supabase) throw new Error("Supabase is not configured");
+  const payload = { event_id: ticket.event_id, name: ticket.name, description: ticket.description, price_kes: ticket.price_kes, quantity_total: ticket.quantity_total, max_per_order: ticket.max_per_order, is_visible: ticket.is_visible, is_active: ticket.is_active, sort_order: ticket.sort_order };
+  const query = ticket.id && !ticket.id.startsWith("new-") ? supabase.from("ticket_types").update(payload).eq("id", ticket.id) : supabase.from("ticket_types").insert(payload);
+  const { data, error } = await query.select().single();
+  if (error) throw error;
+  return data as AdminTicketType;
+}
+
+export async function deleteAdminTicketType(id: string) {
+  if (!supabase) throw new Error("Supabase is not configured");
+  const { error } = await supabase.from("ticket_types").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function getAdminTickets() {
@@ -68,7 +111,7 @@ export async function getAdminTickets() {
 
 export function subscribeToAdminData(onChange: () => void) {
   if (!supabase) return () => undefined;
-  const channel = supabase.channel("hili-admin-realtime").on("postgres_changes", { event: "*", schema: "public", table: "events" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "ticket_types" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, onChange).subscribe();
+  const channel = supabase.channel("hili-admin-realtime").on("postgres_changes", { event: "*", schema: "public", table: "events" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "ticket_types" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "orders" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, onChange).subscribe();
   return () => { void supabase.removeChannel(channel); };
 }
 
