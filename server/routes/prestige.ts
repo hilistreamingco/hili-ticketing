@@ -1,5 +1,6 @@
 import type { RequestHandler } from "express";
-import { createClient } from "@supabase/supabase-js";
+import type { RequestHandler } from "express";
+import { getAuthedUser, requirePrestigeAccess, requireHiliAdmin } from "../lib/auth";
 import {
   getAllOrders,
   getOrderById,
@@ -24,53 +25,11 @@ import type {
   UpsertPaymentConfigRequest,
 } from "@shared/api";
 
-// ── Auth helper ────────────────────────────────────────────────────────────
-// Validates the Supabase JWT from the Authorization header and returns the
-// user + their role in the organization. All prestige routes require this.
-
-async function getSessionUser(authHeader: string | undefined) {
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  const token = authHeader.slice(7);
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-
-  const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) return null;
-
-  // Fetch their role in the organization
-  const { data: member } = await supabase
-    .from("organization_members")
-    .select("role")
-    .eq("user_id", data.user.id)
-    .single();
-
-  return { user: data.user, role: member?.role as string | undefined };
-}
-
-const PRESTIGE_ROLES = ["hili_admin", "prestige_admin"];
-const PRESTIGE_ADMIN_ROLES = ["hili_admin", "prestige_admin"];
-const HILI_ROLES = ["hili_admin"];
-
-function canAccessPrestige(role?: string) {
-  return role ? PRESTIGE_ROLES.includes(role) : false;
-}
-function canAdminPrestige(role?: string) {
-  return role ? PRESTIGE_ADMIN_ROLES.includes(role) : false;
-}
-function isHiliAdmin(role?: string) {
-  return role ? HILI_ROLES.includes(role) : false;
-}
-
 // ── Stats ──────────────────────────────────────────────────────────────────
 
 export const handlePrestigeStats: RequestHandler = async (req, res) => {
-  const session = await getSessionUser(req.headers.authorization);
-  if (!session || !canAccessPrestige(session.role)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
+  const user = await getAuthedUser(req.headers.authorization);
+  if (!requirePrestigeAccess(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const stats = await getPrestigeStats();
     res.json(stats);
@@ -83,23 +42,15 @@ export const handlePrestigeStats: RequestHandler = async (req, res) => {
 // ── List orders ────────────────────────────────────────────────────────────
 
 export const handleListOrders: RequestHandler = async (req, res) => {
-  const session = await getSessionUser(req.headers.authorization);
-  if (!session || !canAccessPrestige(session.role)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
+  const user = await getAuthedUser(req.headers.authorization);
+  if (!requirePrestigeAccess(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const { status, fulfillment } = req.query as Record<string, string>;
     let orders;
-    if (status === "pending") {
-      orders = await getOrdersByStatus(["pending", "processing"]);
-    } else if (status === "confirmed") {
-      orders = await getOrdersByStatus(["confirmed", "paid"], fulfillment);
-    } else if (status === "sent") {
-      orders = await getOrdersByStatus(["confirmed", "paid"], "sent");
-    } else {
-      orders = await getAllOrders();
-    }
+    if (status === "pending") orders = await getOrdersByStatus(["pending", "processing"]);
+    else if (status === "confirmed") orders = await getOrdersByStatus(["confirmed", "paid"], fulfillment);
+    else if (status === "sent") orders = await getOrdersByStatus(["confirmed", "paid"], "sent");
+    else orders = await getAllOrders();
     res.json({ orders });
   } catch (err) {
     console.error("List orders error", err);
@@ -107,14 +58,9 @@ export const handleListOrders: RequestHandler = async (req, res) => {
   }
 };
 
-// ── Get single order ───────────────────────────────────────────────────────
-
 export const handleGetOrder: RequestHandler = async (req, res) => {
-  const session = await getSessionUser(req.headers.authorization);
-  if (!session || !canAccessPrestige(session.role)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
+  const user = await getAuthedUser(req.headers.authorization);
+  if (!requirePrestigeAccess(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const order = await getOrderById(req.params.orderId);
     res.json({ order });
@@ -124,22 +70,14 @@ export const handleGetOrder: RequestHandler = async (req, res) => {
   }
 };
 
-// ── Confirm payment ────────────────────────────────────────────────────────
-
 export const handleConfirmPayment: RequestHandler = async (req, res) => {
-  const session = await getSessionUser(req.headers.authorization);
-  if (!session || !canAccessPrestige(session.role)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
+  const user = await getAuthedUser(req.headers.authorization);
+  if (!requirePrestigeAccess(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
   const { orderId } = req.body as ConfirmPaymentRequest;
   if (!orderId) { res.status(400).json({ error: "orderId is required" }); return; }
   try {
-    const result = await confirmManualPayment(orderId, session.user.id);
-    if (result.already_confirmed) {
-      res.json({ success: true, message: "Payment was already confirmed" });
-      return;
-    }
+    const result = await confirmManualPayment(orderId, user!.uid);
+    if (result.already_confirmed) { res.json({ success: true, message: "Payment was already confirmed" }); return; }
     res.json({ success: true, message: "Payment confirmed and tickets generated" });
   } catch (err) {
     console.error("Confirm payment error", err);
@@ -147,18 +85,13 @@ export const handleConfirmPayment: RequestHandler = async (req, res) => {
   }
 };
 
-// ── Mark payment not found ─────────────────────────────────────────────────
-
 export const handleMarkNotFound: RequestHandler = async (req, res) => {
-  const session = await getSessionUser(req.headers.authorization);
-  if (!session || !canAccessPrestige(session.role)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
+  const user = await getAuthedUser(req.headers.authorization);
+  if (!requirePrestigeAccess(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
   const { orderId, note } = req.body as MarkNotFoundRequest;
   if (!orderId) { res.status(400).json({ error: "orderId is required" }); return; }
   try {
-    await markOrderNotFound(orderId, session.user.id, note);
+    await markOrderNotFound(orderId, user!.uid, note);
     res.json({ success: true, message: "Order marked as payment not found" });
   } catch (err) {
     console.error("Mark not found error", err);
@@ -166,51 +99,31 @@ export const handleMarkNotFound: RequestHandler = async (req, res) => {
   }
 };
 
-// ── Send ticket ────────────────────────────────────────────────────────────
-
 export const handleSendTicket: RequestHandler = async (req, res) => {
-  const session = await getSessionUser(req.headers.authorization);
-  if (!session || !canAccessPrestige(session.role)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
+  const user = await getAuthedUser(req.headers.authorization);
+  if (!requirePrestigeAccess(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
   const { orderId } = req.body as SendTicketRequest;
   if (!orderId) { res.status(400).json({ error: "orderId is required" }); return; }
-
   try {
     const notifStatus = await getNotificationStatus(orderId);
     if (notifStatus === "sent") {
-      // Already sent — still mark as sent in orders table in case it wasn't updated
-      await markTicketSent(orderId, session.user.id).catch(() => undefined);
+      await markTicketSent(orderId, user!.uid).catch(() => undefined);
       res.json({ success: true, message: "Ticket was already sent" });
       return;
     }
-
-    const [contact, tickets] = await Promise.all([
-      getOrderContact(orderId),
-      getOrderTickets(orderId),
-    ]);
-
-    if (!tickets.length) {
-      res.status(400).json({ error: "No tickets found for this order. Confirm payment first." });
-      return;
-    }
-
+    const [contact, tickets] = await Promise.all([getOrderContact(orderId), getOrderTickets(orderId)]);
+    if (!tickets.length) { res.status(400).json({ error: "No tickets found. Confirm payment first." }); return; }
     for (const ticket of tickets) {
       const event = Array.isArray(ticket.event) ? ticket.event[0] : ticket.event;
       const tier = Array.isArray(ticket.ticket_type) ? ticket.ticket_type[0] : ticket.ticket_type;
       await sendTicketEmail(contact.purchaser_email, {
-        ticketNumber: ticket.ticket_number,
-        attendeeName: ticket.attendee_name,
-        eventName: event?.name || "Hili Event",
-        eventDate: event?.event_date || "Date to be confirmed",
+        ticketNumber: ticket.ticket_number, attendeeName: ticket.attendee_name,
+        eventName: event?.name || "Hili Event", eventDate: event?.event_date || "TBC",
         ticketTier: tier?.name || "Ticket",
       });
     }
-
     await markNotificationSent(orderId, `manual-${Date.now()}`);
-    await markTicketSent(orderId, session.user.id);
-
+    await markTicketSent(orderId, user!.uid);
     res.json({ success: true, message: `Ticket${tickets.length > 1 ? "s" : ""} sent successfully` });
   } catch (err) {
     await markNotificationFailed(orderId, err instanceof Error ? err.message : "Send failed").catch(() => undefined);
@@ -219,37 +132,24 @@ export const handleSendTicket: RequestHandler = async (req, res) => {
   }
 };
 
-// ── Payment config (read — public, used by checkout) ──────────────────────
-
 export const handleGetPaymentConfig: RequestHandler = async (req, res) => {
   try {
     const config = await getPaymentConfigBySlug(req.params.eventSlug);
     res.json({ config });
   } catch (err) {
-    console.error("Get payment config error", err);
     res.status(500).json({ error: "Could not load payment config" });
   }
 };
 
-// ── Payment config (write — Hili admin only) ──────────────────────────────
-
 export const handleUpsertPaymentConfig: RequestHandler = async (req, res) => {
-  const session = await getSessionUser(req.headers.authorization);
-  if (!session || !isHiliAdmin(session.role)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  const { eventId, paymentType, number, accountNumber, instructions } =
-    req.body as UpsertPaymentConfigRequest;
-  if (!eventId || !paymentType || !number) {
-    res.status(400).json({ error: "eventId, paymentType, and number are required" });
-    return;
-  }
+  const user = await getAuthedUser(req.headers.authorization);
+  if (!requireHiliAdmin(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const { eventId, paymentType, number, accountNumber, instructions } = req.body as UpsertPaymentConfigRequest;
+  if (!eventId || !paymentType || !number) { res.status(400).json({ error: "eventId, paymentType, and number are required" }); return; }
   try {
     await upsertPaymentConfig(eventId, { paymentType, number, accountNumber, instructions });
     res.json({ success: true });
   } catch (err) {
-    console.error("Upsert payment config error", err);
     res.status(500).json({ error: "Could not save payment config" });
   }
 };

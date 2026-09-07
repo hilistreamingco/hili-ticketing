@@ -1104,15 +1104,19 @@ function Login({ onLogin }: { onLogin: () => void }) {
     setError("");
     try {
       const result = await supabase.auth.signInWithPassword({ email, password });
-      if (result.error) {
-        setError(result.error.message);
+      if (result.error) { setError(result.error.message); return; }
+
+      const role = await getCurrentUserRole();
+      if (!role) {
+        await supabase.auth.signOut();
+        setError(
+          `Access denied. "${email}" is not in the Prestige access list.\n\nAsk Hili to add your email to PRESTIGE_EMAILS in the server environment variables.`,
+        );
         return;
       }
-      // Verify this user has a prestige role
-      const role = await getCurrentUserRole();
       if (!isPrestigeRole(role)) {
         await supabase.auth.signOut();
-        setError("You do not have access to the Prestige dashboard.");
+        setError(`Your account role (${role}) cannot access this dashboard.`);
         return;
       }
       onLogin();
@@ -1143,7 +1147,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
         {error && (
           <div className="mt-5 flex items-start gap-2 rounded-xl bg-red-900/30 p-3 text-sm text-red-300">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            {error}
+            <pre className="whitespace-pre-wrap font-sans">{error}</pre>
           </div>
         )}
         <label className="mt-7 block text-sm font-semibold text-white">

@@ -24,6 +24,7 @@ import {
   handleUpdateTicketType,
   handleDeleteTicketType,
   handleUploadPoster,
+  handleGetMyRole,
 } from "./routes/admin";
 
 export function createServer() {
@@ -50,6 +51,7 @@ export function createServer() {
   app.put("/api/admin/tickets/:id", handleUpdateTicketType);
   app.delete("/api/admin/tickets/:id", handleDeleteTicketType);
   app.post("/api/admin/upload-poster", handleUploadPoster);
+  app.get("/api/admin/me", handleGetMyRole);
 
   // ── Legacy Daraja STK push (kept for mock mode) ──────────────────────────
   app.post("/api/payments/mpesa/stk-push", handleMpesaStkPush);

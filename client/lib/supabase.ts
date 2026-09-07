@@ -228,21 +228,22 @@ export type MemberRole = {
   role: UserRole;
 };
 
-/** Returns the current user's role from organization_members, or null if not logged in / not a member. */
+/** Returns the current user's role via the server email-based auth check. */
 export async function getCurrentUserRole(): Promise<UserRole | null> {
   if (!supabase) return null;
   const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session) return null;
-  const userId = sessionData.session.user.id;
+  if (!sessionData.session?.access_token) return null;
 
-  const { data, error } = await supabase
-    .from("organization_members")
-    .select("role")
-    .eq("user_id", userId)
-    .single();
-
-  if (error || !data) return null;
-  return data.role as UserRole;
+  try {
+    const res = await fetch("/api/admin/me", {
+      headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { role: string | null };
+    return (data.role as UserRole) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function isHiliAdminRole(role: UserRole | null): boolean {

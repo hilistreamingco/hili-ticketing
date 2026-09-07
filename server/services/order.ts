@@ -447,7 +447,16 @@ export async function sendNewOrderInternalNotification(order: {
 }) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM;
-  const to = process.env.OPS_NOTIFICATION_EMAIL || process.env.CONTACT_TO_EMAIL || "hilistreaming.co@gmail.com";
+
+  // Send to all configured recipients — always includes both Hili and Prestige
+  const toAddresses = [
+    "hilistreaming.co@gmail.com",
+    "social@prestigeplaza.co.ke",
+    // Any additional address from env (e.g. for staging overrides)
+    ...(process.env.OPS_NOTIFICATION_EMAIL
+      ? process.env.OPS_NOTIFICATION_EMAIL.split(",").map((e) => e.trim())
+      : []),
+  ].filter((v, i, arr) => v && arr.indexOf(v) === i); // deduplicate
 
   if (!apiKey || !from) return; // silently skip if email not configured
 
@@ -481,7 +490,7 @@ export async function sendNewOrderInternalNotification(order: {
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       from,
-      to: [to],
+      to: toAddresses,
       subject: `New Ticket Order — ${order.orderNumber} — Payment Verification Required`,
       html,
     }),
