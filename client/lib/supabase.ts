@@ -121,3 +121,150 @@ export async function getPublishedEvents() {
   if (error) throw error;
   return data;
 }
+
+// ── Prestige / role helpers ────────────────────────────────────────────────
+
+import type { UserRole } from "@shared/api";
+
+export type MemberRole = {
+  role: UserRole;
+};
+
+/** Returns the current user's role from organization_members, or null if not logged in / not a member. */
+export async function getCurrentUserRole(): Promise<UserRole | null> {
+  if (!supabase) return null;
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return null;
+  const userId = sessionData.session.user.id;
+
+  const { data, error } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("user_id", userId)
+    .single();
+
+  if (error || !data) return null;
+  return data.role as UserRole;
+}
+
+export function isHiliAdminRole(role: UserRole | null): boolean {
+  return role !== null && (["super_admin", "hili_admin", "event_manager"] as UserRole[]).includes(role);
+}
+
+export function isPrestigeRole(role: UserRole | null): boolean {
+  return role !== null && (["super_admin", "hili_admin", "event_manager", "prestige_admin", "prestige_staff"] as UserRole[]).includes(role);
+}
+
+export function isPrestigeAdminRole(role: UserRole | null): boolean {
+  return role !== null && (["super_admin", "hili_admin", "prestige_admin"] as UserRole[]).includes(role);
+}
+
+// ── Prestige API client helpers ────────────────────────────────────────────
+// All Prestige API calls go through the Express server using the Supabase JWT
+// so server-side RLS and role checks are enforced.
+
+async function getAuthHeader(): Promise<Record<string, string>> {
+  if (!supabase) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function prestigeGet<T>(path: string): Promise<T> {
+  const headers = await getAuthHeader();
+  const res = await fetch(path, { headers });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function prestigePost<T>(path: string, body: unknown): Promise<T> {
+  const headers = await getAuthHeader();
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function prestigePut<T>(path: string, body: unknown): Promise<T> {
+  const headers = await getAuthHeader();
+  const res = await fetch(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+import type {
+  Order,
+  PrestigeStats,
+  PaymentConfig,
+  ConfirmPaymentResponse,
+  SendTicketResponse,
+  UpsertPaymentConfigRequest,
+} from "@shared/api";
+
+export async function fetchPrestigeStats(): Promise<PrestigeStats> {
+  return prestigeGet<PrestigeStats>("/api/prestige/stats");
+}
+
+export async function fetchPrestigeOrders(
+  status?: "pending" | "confirmed" | "sent" | "all",
+): Promise<Order[]> {
+  const qs = status && status !== "all" ? `?status=${status}` : "";
+  const data = await prestigeGet<{ orders: Order[] }>(`/api/prestige/orders${qs}`);
+  return data.orders;
+}
+
+export async function fetchPrestigeOrder(orderId: string): Promise<Order> {
+  const data = await prestigeGet<{ order: Order }>(`/api/prestige/orders/${orderId}`);
+  return data.order;
+}
+
+export async function confirmPrestigePayment(orderId: string): Promise<ConfirmPaymentResponse> {
+  return prestigePost<ConfirmPaymentResponse>("/api/prestige/orders/confirm", { orderId });
+}
+
+export async function markPrestigeNotFound(orderId: string, note?: string): Promise<void> {
+  await prestigePost("/api/prestige/orders/not-found", { orderId, note });
+}
+
+export async function sendPrestigeTicket(orderId: string): Promise<SendTicketResponse> {
+  return prestigePost<SendTicketResponse>("/api/prestige/orders/send-ticket", { orderId });
+}
+
+export async function savePrestigePaymentConfig(
+  req: UpsertPaymentConfigRequest,
+): Promise<void> {
+  await prestigePut("/api/prestige/payment-config", req);
+}
+
+export async function fetchPaymentConfig(eventSlug: string): Promise<PaymentConfig | null> {
+  const data = await fetch(`/api/payment-config/${eventSlug}`)
+    .then((r) => r.json() as Promise<{ config: PaymentConfig | null }>)
+    .catch(() => ({ config: null }));
+  return data.config;
+}
+
+export function subscribeToPrestigeOrders(onChange: () => void) {
+  if (!supabase) return () => undefined;
+  const channel = supabase
+    .channel("prestige-orders-realtime")
+    .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, onChange)
+    .subscribe();
+  return () => { void supabase.removeChannel(channel); };
+}

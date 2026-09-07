@@ -18,6 +18,7 @@ import CheckoutPage from "./pages/CheckoutPage";
 import ContactPage from "./pages/ContactPage";
 import { TermsPage, PrivacyPage } from "./pages/LegalPages";
 import AdminPage from "./pages/AdminPage";
+import PrestigePage from "./pages/PrestigePage";
 import NotFound from "./pages/NotFound";
 import PlaceholderPage from "./components/PlaceholderPage";
 import Layout from "./components/layout/Layout";
@@ -54,6 +55,7 @@ function App() {
     <Route path="/login" element={<PlaceholderPage title="Welcome back" description="Account login and registration will be available here." icon={LogIn} />} />
     <Route path="/admin" element={<AdminPage />} />
     <Route path="/admin/attendees" element={<PlaceholderPage title="Attendees" description="Search, filter, and manage your event attendees." icon={Users} />} />
+    <Route path="/admin/prestige" element={<PrestigePage />} />
     <Route path="*" element={<NotFound />} />
   </Routes></BrowserRouter></TooltipProvider></QueryClientProvider>;
 }
