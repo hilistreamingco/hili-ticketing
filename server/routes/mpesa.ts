@@ -1,4 +1,6 @@
 import type { RequestHandler } from "express";
+import { attachCheckoutRequest, createPendingOrder, finalizePaidOrder, getNotificationStatus, getOrderContact, getOrderTickets, markNotificationFailed, markNotificationSent, markOrderFailed } from "../services/order";
+import { sendTicketEmail } from "../services/tickets";
 
 const normalizePhone = (value: string) => {
   const digits = value.replace(/\D/g, "");
@@ -7,73 +9,94 @@ const normalizePhone = (value: string) => {
   return digits;
 };
 
-const darajaBase = () => process.env.MPESA_ENVIRONMENT === "production"
-  ? "https://api.safaricom.co.ke"
-  : "https://sandbox.safaricom.co.ke";
-
-const missingConfig = ["MPESA_CONSUMER_KEY", "MPESA_CONSUMER_SECRET", "MPESA_PASSKEY", "MPESA_TILL_NUMBER", "MPESA_CALLBACK_URL"];
+const darajaBase = () => process.env.MPESA_ENVIRONMENT === "production" ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke";
+const missingConfig = ["MPESA_CONSUMER_KEY", "MPESA_CONSUMER_SECRET", "MPESA_PASSKEY", "MPESA_TILL_NUMBER", "MPESA_CALLBACK_URL", "SUPABASE_SERVICE_ROLE_KEY"];
 const paymentStatuses = new Map<string, "Pending" | "Paid" | "Failed">();
 
 export const handleMpesaStkPush: RequestHandler = async (req, res) => {
   const absent = missingConfig.filter((key) => !process.env[key]);
-  if (absent.length) {
-    res.status(503).json({ error: "M-Pesa is not configured", missing: absent });
-    return;
+  if (absent.length) { res.status(503).json({ error: "M-Pesa is not configured", missing: absent }); return; }
+  const body = req.body as Record<string, unknown>;
+  const phone = typeof body.phone === "string" ? normalizePhone(body.phone) : "";
+  const amount = typeof body.amount === "number" ? body.amount : 0;
+  const eventSlug = typeof body.eventSlug === "string" ? body.eventSlug : "";
+  const ticketTypeId = typeof body.ticketTypeId === "string" ? body.ticketTypeId : undefined;
+  const ticketTypeName = typeof body.ticketTypeName === "string" ? body.ticketTypeName : undefined;
+  const purchaserName = typeof body.purchaserName === "string" ? body.purchaserName.trim() : "";
+  const purchaserEmail = typeof body.purchaserEmail === "string" ? body.purchaserEmail.trim().toLowerCase() : "";
+  const attendeeNames = Array.isArray(body.attendeeNames) ? body.attendeeNames.filter((name): name is string => typeof name === "string").map((name) => name.trim()).filter(Boolean) : [];
+  if (!phone || !/^254\d{9}$/.test(phone) || !eventSlug || !purchaserName || !/^\S+@\S+\.\S+$/.test(purchaserEmail) || !Number.isFinite(amount) || amount <= 0 || !attendeeNames.length || attendeeNames.length > 20) {
+    res.status(400).json({ error: "Valid purchaser, attendee, phone, email, and amount details are required" }); return;
   }
-  const { phone, amount, accountReference, transactionDescription } = req.body as Record<string, unknown>;
-  if (typeof phone !== "string" || typeof amount !== "number" || amount <= 0) {
-    res.status(400).json({ error: "A valid phone number and amount are required" });
-    return;
+
+  let order: { id: string; order_number: string; eventId: string };
+  try {
+    order = await createPendingOrder({ eventSlug, ticketTypeId, ticketTypeName, purchaserName, purchaserEmail, purchaserPhone: phone, attendeeNames, amountKes: Math.round(amount) });
+  } catch (error) {
+    console.error("Could not create pending order", error);
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not create order" }); return;
   }
+
   const timestamp = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi", hour12: false }).replace(/[^0-9]/g, "").slice(0, 14);
   const shortcode = process.env.MPESA_TILL_NUMBER!;
   const password = Buffer.from(`${shortcode}${process.env.MPESA_PASSKEY}${timestamp}`).toString("base64");
   try {
-    const tokenResponse = await fetch(`${darajaBase()}/oauth/v1/generate?grant_type=client_credentials`, {
-      headers: { Authorization: `Basic ${Buffer.from(`${process.env.MPESA_CONSUMER_KEY}:${process.env.MPESA_CONSUMER_SECRET}`).toString("base64")}` },
-    });
+    const tokenResponse = await fetch(`${darajaBase()}/oauth/v1/generate?grant_type=client_credentials`, { headers: { Authorization: `Basic ${Buffer.from(`${process.env.MPESA_CONSUMER_KEY}:${process.env.MPESA_CONSUMER_SECRET}`).toString("base64")}` } });
     if (!tokenResponse.ok) throw new Error("Daraja authentication failed");
     const token = (await tokenResponse.json() as { access_token?: string }).access_token;
     if (!token) throw new Error("Daraja did not return an access token");
     const stkResponse = await fetch(`${darajaBase()}/mpesa/stkpush/v1/processrequest`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        BusinessShortCode: shortcode,
-        Password: password,
-        Timestamp: timestamp,
-        TransactionType: "CustomerBuyGoodsOnline",
-        Amount: Math.round(amount),
-        PartyA: normalizePhone(phone),
-        PartyB: shortcode,
-        PhoneNumber: normalizePhone(phone),
-        CallBackURL: process.env.MPESA_CALLBACK_URL,
-        AccountReference: typeof accountReference === "string" ? accountReference.slice(0, 12) : "HILI",
-        TransactionDesc: typeof transactionDescription === "string" ? transactionDescription.slice(0, 20) : "Hili ticket",
-      }),
+      body: JSON.stringify({ BusinessShortCode: shortcode, Password: password, Timestamp: timestamp, TransactionType: "CustomerBuyGoodsOnline", Amount: Math.round(amount), PartyA: phone, PartyB: shortcode, PhoneNumber: phone, CallBackURL: process.env.MPESA_CALLBACK_URL, AccountReference: order.order_number.slice(0, 12), TransactionDesc: "Hili ticket" }),
     });
     const data = await stkResponse.json() as Record<string, unknown>;
-    if (!stkResponse.ok || data.ResponseCode === "1") {
-      res.status(502).json({ error: "M-Pesa could not start the payment", detail: data });
-      return;
-    }
-    if (typeof data.CheckoutRequestID === "string") paymentStatuses.set(data.CheckoutRequestID, "Pending");
+    if (!stkResponse.ok || data.ResponseCode === "1" || typeof data.CheckoutRequestID !== "string") throw new Error("M-Pesa could not start the payment");
+    await attachCheckoutRequest(order.id, data.CheckoutRequestID);
+    paymentStatuses.set(data.CheckoutRequestID, "Pending");
     res.status(202).json({ merchantRequestId: data.MerchantRequestID, checkoutRequestId: data.CheckoutRequestID, customerMessage: data.CustomerMessage });
   } catch (error) {
+    await markOrderFailed(order.id).catch((failure) => console.error("Could not mark failed order", failure));
     console.error("M-Pesa STK Push failed", error);
-    res.status(502).json({ error: "Unable to reach M-Pesa" });
+    res.status(502).json({ error: "Unable to start M-Pesa payment" });
   }
 };
 
-export const handleMpesaCallback: RequestHandler = (req, res) => {
+export const handleMpesaCallback: RequestHandler = async (req, res) => {
   const callback = req.body?.Body?.stkCallback;
   const checkoutRequestId = callback?.CheckoutRequestID;
-  if (typeof checkoutRequestId === "string") paymentStatuses.set(checkoutRequestId, callback?.ResultCode === 0 ? "Paid" : "Failed");
-  console.info("M-Pesa callback received", { checkoutRequestId, resultCode: callback?.ResultCode });
+  if (typeof checkoutRequestId !== "string") { res.json({ ResultCode: 0, ResultDesc: "Accepted" }); return; }
+  if (callback?.ResultCode !== 0) { paymentStatuses.set(checkoutRequestId, "Failed"); res.json({ ResultCode: 0, ResultDesc: "Accepted" }); return; }
+  const metadata = Array.isArray(callback.CallbackMetadata?.Item) ? callback.CallbackMetadata.Item as Array<{ Name?: string; Value?: string | number }> : [];
+  const receipt = metadata.find((item) => item.Name === "MpesaReceiptNumber")?.Value;
+  try {
+    const finalized = await finalizePaidOrder(checkoutRequestId, receipt ? String(receipt) : undefined);
+    paymentStatuses.set(checkoutRequestId, "Paid");
+    {
+      const status = await getNotificationStatus(finalized.order_id);
+      if (status !== "sent") {
+        try {
+          const [contact, tickets] = await Promise.all([getOrderContact(finalized.order_id), getOrderTickets(finalized.order_id)]);
+          for (const ticket of tickets) {
+            const event = Array.isArray(ticket.event) ? ticket.event[0] : ticket.event;
+            const tier = Array.isArray(ticket.ticket_type) ? ticket.ticket_type[0] : ticket.ticket_type;
+            await sendTicketEmail(contact.purchaser_email, { ticketNumber: ticket.ticket_number, attendeeName: ticket.attendee_name, eventName: event?.name || "Hili event", eventDate: event?.event_date || "Date to be confirmed", ticketTier: tier?.name || "Ticket" });
+          }
+          await markNotificationSent(finalized.order_id, `tickets-${finalized.order_id}`);
+        } catch (emailError) {
+          await markNotificationFailed(finalized.order_id, emailError instanceof Error ? emailError.message : "Ticket email failed");
+          console.error("Ticket email delivery failed; order remains paid for retry", emailError);
+        }
+      }
+    }
+  } catch (error) {
+    paymentStatuses.set(checkoutRequestId, "Failed");
+    console.error("M-Pesa callback finalization failed", error);
+  }
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 };
 
-export const handleMpesaStatus: RequestHandler = (req, res) => {
+export const handleMpesaStatus: RequestHandler = async (req, res) => {
   const checkoutRequestId = Array.isArray(req.params.checkoutRequestId) ? req.params.checkoutRequestId[0] : req.params.checkoutRequestId;
   const status = paymentStatuses.get(checkoutRequestId);
   if (!status) { res.status(404).json({ error: "Payment not found" }); return; }
