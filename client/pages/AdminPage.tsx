@@ -355,50 +355,33 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── ensure org exists (auto-bootstrap) ───────────────────────────────────
-  const ensureOrg = async (): Promise<string> => {
-    if (!supabase) throw new Error("Supabase is not configured");
-    // Look for any existing org
-    const { data: existing } = await supabase
-      .from("organizations")
-      .select("id")
-      .limit(1)
-      .single();
-    if (existing) return existing.id as string;
-    // Create one automatically — no manual step needed
-    const { data: created, error } = await supabase
-      .from("organizations")
-      .insert({ name: "Hili" })
-      .select("id")
-      .single();
-    if (error || !created) throw new Error("Could not create organization");
-    return created.id as string;
-  };
-
   const refresh = useCallback(async () => {
-    if (!supabase) return;
-    const rows = await getAdminEvents();
-    const found = isCurrent
-      ? rows.find((e) => e.is_current)
-      : rows.find((e) => !e.is_current && e.status !== "archived");
-    if (found) {
-      setRow(found);
-      setDraft({
-        name: found.name,
-        short_description: found.short_description ?? "",
-        description: found.description ?? "",
-        venue: found.venue ?? "",
-        address: found.address ?? "",
-        city: found.city ?? "",
-        event_date: found.event_date ?? "",
-        start_time: found.start_time ?? "",
-        end_time: found.end_time ?? "",
-        venue_map_url: found.venue_map_url ?? "",
-        status: found.status,
-        is_current: found.is_current,
-      });
-      setPoster(found.poster_path ?? "");
-      setTiers(await getAdminTicketTypes(found.id));
+    try {
+      const rows = await getAdminEvents();
+      const found = isCurrent
+        ? rows.find((e) => e.is_current)
+        : rows.find((e) => !e.is_current && e.status !== "archived");
+      if (found) {
+        setRow(found);
+        setDraft({
+          name: found.name,
+          short_description: found.short_description ?? "",
+          description: found.description ?? "",
+          venue: found.venue ?? "",
+          address: found.address ?? "",
+          city: found.city ?? "",
+          event_date: found.event_date ?? "",
+          start_time: found.start_time ?? "",
+          end_time: found.end_time ?? "",
+          venue_map_url: found.venue_map_url ?? "",
+          status: found.status,
+          is_current: found.is_current,
+        });
+        setPoster(found.poster_path ?? "");
+        setTiers(await getAdminTicketTypes(found.id));
+      }
+    } catch {
+      // silently fail on load — server may not be ready
     }
   }, [isCurrent]);
 
@@ -413,22 +396,24 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
 
   const upload = async (file?: File) => {
     if (!file) return;
-    // If no row yet, save first to get an ID for the storage path
+    // Need an event ID to store the poster — save first if needed
     let targetId = row?.id;
     if (!targetId) {
       await save(true);
-      // row state may not have updated yet — re-read
       const rows = await getAdminEvents();
       const found = isCurrent
         ? rows.find((e) => e.is_current)
         : rows.find((e) => !e.is_current && e.status !== "archived");
       targetId = found?.id;
+      if (found) setRow(found);
     }
     if (!targetId) return;
     try {
       const uploaded = await uploadEventPoster(file, targetId);
       setPoster(uploaded.url);
-      if (row) await saveAdminEvent({ id: targetId, poster_path: uploaded.url });
+      // Persist the poster URL
+      const updated = await saveAdminEvent({ id: targetId, poster_path: uploaded.url });
+      setRow(updated);
       setMessage({ text: "Poster uploaded.", ok: true });
     } catch (err) {
       setMessage({ text: err instanceof Error ? err.message : "Upload failed", ok: false });
@@ -461,17 +446,8 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
           poster_path: poster || null,
         });
       } else {
-        // Auto-bootstrap org, then create event
-        const orgId = await ensureOrg();
-        const slug = draft.name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/(^-|-$)/g, "")
-          || `event-${Date.now()}`;
-
+        // Server handles org bootstrap automatically
         saved = await createAdminEvent({
-          organization_id: orgId,
-          slug,
           name: draft.name,
           short_description: draft.short_description || null,
           description: draft.description || null,
@@ -493,7 +469,7 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
       setTiers(await getAdminTicketTypes(saved.id));
       if (!silent) setMessage({ text: "Saved successfully.", ok: true });
     } catch (err) {
-      setMessage({ text: err instanceof Error ? err.message : "Could not save", ok: false });
+      setMessage({ text: err instanceof Error ? err.message : "Could not save — make sure SUPABASE_SERVICE_ROLE_KEY is set in your environment.", ok: false });
     } finally {
       setSaving(false);
     }
@@ -542,9 +518,7 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
       {message && (
         <div
           className={`mt-4 flex items-center gap-2 rounded-xl p-3 text-sm ${
-            message.ok
-              ? "bg-green-50 text-green-800"
-              : "bg-red-50 text-red-700"
+            message.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"
           }`}
         >
           {message.ok && <CheckCircle2 className="h-4 w-4 shrink-0" />}
@@ -669,10 +643,8 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
         </div>
       </div>
 
-      {/* Ticket tiers — only when we have a saved event */}
-      {row && (
-        <TicketEditor eventId={row.id} tiers={tiers} setTiers={setTiers} />
-      )}
+      {/* Ticket tiers — always visible; shows prompt before first save */}
+      <TicketEditor eventId={row?.id ?? null} tiers={tiers} setTiers={setTiers} />
     </div>
   );
 }
@@ -683,7 +655,7 @@ function TicketEditor({
   tiers,
   setTiers,
 }: {
-  eventId: string;
+  eventId: string | null;
   tiers: AdminTicketType[];
   setTiers: React.Dispatch<React.SetStateAction<AdminTicketType[]>>;
 }) {
@@ -702,6 +674,7 @@ function TicketEditor({
   };
 
   const addTier = () => {
+    if (!eventId) return; // guarded — button is disabled when no event
     const newId = `new-${Date.now()}`;
     const newTier: AdminTicketType = {
       id: newId,
@@ -711,7 +684,10 @@ function TicketEditor({
       price_kes: 0,
       quantity_total: 100,
       quantity_sold: 0,
+      min_per_order: 1,
       max_per_order: 6,
+      sales_start: null,
+      sales_end: null,
       is_visible: true,
       is_active: true,
       sort_order: tiers.length,
@@ -721,6 +697,7 @@ function TicketEditor({
   };
 
   const saveTier = async (tier: AdminTicketType) => {
+    if (!eventId) return;
     setSaving(tier.id);
     try {
       const saved = await saveAdminTicketType({ ...tier, event_id: eventId });
@@ -756,12 +733,18 @@ function TicketEditor({
           <p className="text-sm text-black/50">Ticket configuration</p>
           <h3 className="mt-1 font-display text-2xl font-bold">Ticket tiers</h3>
         </div>
-        <Button variant="outline" onClick={addTier}>
+        <Button variant="outline" onClick={addTier} disabled={!eventId}>
           <Plus className="mr-2 h-4 w-4" /> Add tier
         </Button>
       </div>
 
-      {tiers.length === 0 && (
+      {!eventId && (
+        <p className="mt-5 rounded-2xl border border-dashed border-black/15 bg-white p-5 text-sm text-black/50">
+          Save the event details above first, then you can add ticket tiers here.
+        </p>
+      )}
+
+      {eventId && tiers.length === 0 && (
         <p className="mt-5 rounded-2xl border border-dashed border-black/15 p-6 text-center text-sm text-black/40">
           No ticket tiers yet. Click "Add tier" to create the first one.
         </p>

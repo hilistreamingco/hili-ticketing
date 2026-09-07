@@ -5,6 +5,8 @@ const anonKey = (import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || import.
 
 export const supabase: SupabaseClient | null = url && anonKey ? createClient(url, anonKey) : null;
 
+// ── Types ──────────────────────────────────────────────────────────────────
+
 export type AdminEvent = {
   id: string;
   organization_id: string;
@@ -53,90 +55,167 @@ export type AdminTicket = {
   ticket_type: { name: string } | null;
 };
 
-export async function uploadEventPoster(file: File, eventId: string) {
-  if (!supabase) throw new Error("Supabase is not configured");
-  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-  const path = `${eventId}/${crypto.randomUUID()}.${extension}`;
-  const { error } = await supabase.storage.from("event-posters").upload(path, file, { upsert: false, contentType: file.type });
-  if (error) throw error;
-  return { path, url: supabase.storage.from("event-posters").getPublicUrl(path).data.publicUrl };
+// ── Auth header helper ─────────────────────────────────────────────────────
+
+async function authHeader(): Promise<Record<string, string>> {
+  if (!supabase) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export async function getAdminEvents() {
-  if (!supabase) return [] as AdminEvent[];
-  const { data, error } = await supabase.from("events").select("*").order("event_date", { ascending: true });
-  if (error) throw error;
-  return (data || []) as AdminEvent[];
+async function adminGet<T>(path: string): Promise<T> {
+  const headers = await authHeader();
+  const res = await fetch(path, { headers });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
 }
 
-export async function createAdminEvent(event: Omit<AdminEvent, "id" | "created_at" | "updated_at">) {
-  if (!supabase) throw new Error("Supabase is not configured");
-  const { data, error } = await supabase.from("events").insert(event).select().single();
-  if (error) throw error;
-  return data as AdminEvent;
+async function adminPost<T>(path: string, body: unknown): Promise<T> {
+  const headers = await authHeader();
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
 }
 
-export async function saveAdminEvent(event: Partial<AdminEvent> & { id: string }) {
-  if (!supabase) throw new Error("Supabase is not configured");
-  const { data, error } = await supabase.from("events").update(event).eq("id", event.id).select().single();
-  if (error) throw error;
-  return data as AdminEvent;
+async function adminPut<T>(path: string, body: unknown): Promise<T> {
+  const headers = await authHeader();
+  const res = await fetch(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
 }
 
-export async function getAdminTicketTypes(eventId: string) {
-  if (!supabase) return [] as AdminTicketType[];
-  const { data, error } = await supabase.from("ticket_types").select("*").eq("event_id", eventId).order("sort_order");
-  if (error) throw error;
-  return (data || []) as AdminTicketType[];
+async function adminDelete(path: string): Promise<void> {
+  const headers = await authHeader();
+  const res = await fetch(path, { method: "DELETE", headers });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Request failed: ${res.status}`);
+  }
 }
 
-export async function saveAdminTicketType(ticket: Partial<AdminTicketType> & { id?: string; event_id: string }) {
-  if (!supabase) throw new Error("Supabase is not configured");
-  const payload = {
-    event_id: ticket.event_id,
-    name: ticket.name,
-    description: ticket.description ?? null,
-    price_kes: ticket.price_kes,
-    quantity_total: ticket.quantity_total,
-    min_per_order: ticket.min_per_order ?? 1,
-    max_per_order: ticket.max_per_order,
-    sales_start: ticket.sales_start ?? null,
-    sales_end: ticket.sales_end ?? null,
-    is_visible: ticket.is_visible,
-    is_active: ticket.is_active,
-    sort_order: ticket.sort_order,
-  };
-  const query =
-    ticket.id && !ticket.id.startsWith("new-")
-      ? supabase.from("ticket_types").update(payload).eq("id", ticket.id)
-      : supabase.from("ticket_types").insert(payload);
-  const { data, error } = await query.select().single();
-  if (error) throw error;
-  return data as AdminTicketType;
+// ── Event CRUD (via server — bypasses RLS) ─────────────────────────────────
+
+export async function getAdminEvents(): Promise<AdminEvent[]> {
+  const data = await adminGet<{ events: AdminEvent[] }>("/api/admin/events");
+  return data.events;
 }
 
-export async function deleteAdminTicketType(id: string) {
-  if (!supabase) throw new Error("Supabase is not configured");
-  const { error } = await supabase.from("ticket_types").delete().eq("id", id);
-  if (error) throw error;
+export async function createAdminEvent(
+  event: Omit<AdminEvent, "id" | "organization_id" | "slug" | "created_at" | "updated_at">,
+): Promise<AdminEvent> {
+  const data = await adminPost<{ event: AdminEvent }>("/api/admin/events", event);
+  return data.event;
 }
 
-export async function getAdminTickets() {
-  if (!supabase) return [] as AdminTicket[];
-  const { data, error } = await supabase.from("tickets").select("id,ticket_number,attendee_name,checked_in_at,created_at,event:events(name),ticket_type:ticket_types(name)").order("created_at", { ascending: false });
-  if (error) throw error;
-  return (data || []) as unknown as AdminTicket[];
+export async function saveAdminEvent(
+  event: Partial<AdminEvent> & { id: string },
+): Promise<AdminEvent> {
+  const { id, ...rest } = event;
+  const data = await adminPut<{ event: AdminEvent }>(`/api/admin/events/${id}`, rest);
+  return data.event;
 }
+
+// ── Ticket type CRUD (via server) ──────────────────────────────────────────
+
+export async function getAdminTicketTypes(eventId: string): Promise<AdminTicketType[]> {
+  const data = await adminGet<{ tickets: AdminTicketType[] }>(
+    `/api/admin/events/${eventId}/tickets`,
+  );
+  return data.tickets;
+}
+
+export async function saveAdminTicketType(
+  ticket: Partial<AdminTicketType> & { id?: string; event_id: string },
+): Promise<AdminTicketType> {
+  if (ticket.id && !ticket.id.startsWith("new-")) {
+    const { id, ...rest } = ticket;
+    const data = await adminPut<{ ticket: AdminTicketType }>(`/api/admin/tickets/${id}`, rest);
+    return data.ticket;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { id: _id, ...rest } = ticket;
+  const data = await adminPost<{ ticket: AdminTicketType }>("/api/admin/tickets", rest);
+  return data.ticket;
+}
+
+export async function deleteAdminTicketType(id: string): Promise<void> {
+  await adminDelete(`/api/admin/tickets/${id}`);
+}
+
+// ── Poster upload (via server — uses service role for storage) ─────────────
+
+export async function uploadEventPoster(file: File, eventId: string): Promise<{ url: string }> {
+  // Convert to base64 and send to server; server uses service role to upload
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1]); // strip "data:image/...;base64,"
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const data = await adminPost<{ url: string }>("/api/admin/upload-poster", {
+    eventId,
+    base64,
+    mimeType: file.type,
+  });
+  return { url: data.url };
+}
+
+// ── Attendee tickets (direct Supabase read — admins have RLS read access) ──
+
+export async function getAdminTickets(): Promise<AdminTicket[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("tickets")
+    .select("id,ticket_number,attendee_name,checked_in_at,created_at,event:events(name),ticket_type:ticket_types(name)")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as AdminTicket[];
+}
+
+// ── Realtime ───────────────────────────────────────────────────────────────
 
 export function subscribeToAdminData(onChange: () => void) {
   if (!supabase) return () => undefined;
-  const channel = supabase.channel("hili-admin-realtime").on("postgres_changes", { event: "*", schema: "public", table: "events" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "ticket_types" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "orders" }, onChange).on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, onChange).subscribe();
+  const channel = supabase
+    .channel("hili-admin-realtime")
+    .on("postgres_changes", { event: "*", schema: "public", table: "events" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_types" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, onChange)
+    .subscribe();
   return () => { void supabase.removeChannel(channel); };
 }
 
 export async function getPublishedEvents() {
   if (!supabase) return [];
-  const { data, error } = await supabase.from("events").select("*, ticket_types(*)").eq("status", "published").order("event_date");
+  const { data, error } = await supabase
+    .from("events")
+    .select("*, ticket_types(*)")
+    .eq("status", "published")
+    .order("event_date");
   if (error) throw error;
   return data;
 }

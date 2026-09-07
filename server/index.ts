@@ -15,12 +15,22 @@ import {
   handleUpsertPaymentConfig,
   handleCreateManualOrder,
 } from "./routes/prestige";
+import {
+  handleGetEvents,
+  handleCreateEvent,
+  handleUpdateEvent,
+  handleGetTicketTypes,
+  handleCreateTicketType,
+  handleUpdateTicketType,
+  handleDeleteTicketType,
+  handleUploadPoster,
+} from "./routes/admin";
 
 export function createServer() {
   const app = express();
 
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true }));
 
   // ── Health / demo ────────────────────────────────────────────────────────
@@ -31,7 +41,17 @@ export function createServer() {
   app.get("/api/demo", handleDemo);
   app.post("/api/contact", handleContactEmail);
 
-  // ── Legacy Daraja STK push (kept for backward compat / mock mode) ────────
+  // ── Hili Admin API (service-role, hili_admin only) ────────────────────────
+  app.get("/api/admin/events", handleGetEvents);
+  app.post("/api/admin/events", handleCreateEvent);
+  app.put("/api/admin/events/:id", handleUpdateEvent);
+  app.get("/api/admin/events/:id/tickets", handleGetTicketTypes);
+  app.post("/api/admin/tickets", handleCreateTicketType);
+  app.put("/api/admin/tickets/:id", handleUpdateTicketType);
+  app.delete("/api/admin/tickets/:id", handleDeleteTicketType);
+  app.post("/api/admin/upload-poster", handleUploadPoster);
+
+  // ── Legacy Daraja STK push (kept for mock mode) ──────────────────────────
   app.post("/api/payments/mpesa/stk-push", handleMpesaStkPush);
   app.post("/api/payments/mpesa/callback", handleMpesaCallback);
   app.get("/api/payments/mpesa/status/:checkoutRequestId", handleMpesaStatus);
@@ -49,8 +69,6 @@ export function createServer() {
   app.post("/api/prestige/orders/confirm", handleConfirmPayment);
   app.post("/api/prestige/orders/not-found", handleMarkNotFound);
   app.post("/api/prestige/orders/send-ticket", handleSendTicket);
-
-  // ── Payment config management (Hili admin only) ───────────────────────────
   app.put("/api/prestige/payment-config", handleUpsertPaymentConfig);
 
   return app;
