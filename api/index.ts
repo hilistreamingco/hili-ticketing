@@ -90,8 +90,10 @@ app.all('/api/prestige/orders', async (req, res) => {
     if (req.method === 'POST') {
       const { action, orderId, note } = req.body;
 
+      console.log('POST /api/prestige/orders', { action, orderId, note, body: req.body });
+
       if (!action || !orderId) {
-        return res.status(400).json({ error: 'Missing action or orderId' });
+        return res.status(400).json({ error: 'Missing action or orderId', received: { action, orderId } });
       }
 
       if (action === 'confirm') {
