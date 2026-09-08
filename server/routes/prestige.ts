@@ -15,8 +15,8 @@ import {
   markNotificationFailed,
   getPaymentConfigBySlug,
   upsertPaymentConfig,
-} from "../services/order";
-import { sendTicketEmail } from "../services/tickets";
+} from "../services/order.js";
+import { sendTicketEmail } from "../services/tickets.js";
 import type {
   ConfirmPaymentRequest,
   MarkNotFoundRequest,
@@ -116,9 +116,13 @@ export const handleSendTicket: RequestHandler = async (req, res) => {
       const event = Array.isArray(ticket.event) ? ticket.event[0] : ticket.event;
       const tier = Array.isArray(ticket.ticket_type) ? ticket.ticket_type[0] : ticket.ticket_type;
       await sendTicketEmail(contact.purchaser_email, {
-        ticketNumber: ticket.ticket_number, attendeeName: ticket.attendee_name,
-        eventName: event?.name || "Hili Event", eventDate: event?.event_date || "TBC",
+        ticketNumber: ticket.ticket_number, 
+        attendeeName: ticket.attendee_name,
+        eventName: event?.name || "Hili Event", 
+        eventDate: event?.event_date || "TBC",
         ticketTier: tier?.name || "Ticket",
+        venue: event?.venue,
+        ticketId: ticket.id,
       });
     }
     await markNotificationSent(orderId, `manual-${Date.now()}`);

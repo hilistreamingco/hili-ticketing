@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RequestHandler } from "express";
-import { attachCheckoutRequest, createPendingOrder, finalizePaidOrder, getNotificationStatus, getOrderContact, getOrderTickets, markNotificationFailed, markNotificationSent, markOrderFailed } from "../services/order";
-import { sendTicketEmail } from "../services/tickets";
+import { attachCheckoutRequest, createPendingOrder, finalizePaidOrder, getNotificationStatus, getOrderContact, getOrderTickets, markNotificationFailed, markNotificationSent, markOrderFailed } from "../services/order.js";
+import { sendTicketEmail } from "../services/tickets.js";
 
 const normalizePhone = (value: string) => {
   const digits = value.replace(/\D/g, "");
@@ -22,7 +22,15 @@ async function deliverTickets(orderId: string) {
     for (const ticket of tickets) {
       const event = Array.isArray(ticket.event) ? ticket.event[0] : ticket.event;
       const tier = Array.isArray(ticket.ticket_type) ? ticket.ticket_type[0] : ticket.ticket_type;
-      await sendTicketEmail(contact.purchaser_email, { ticketNumber: ticket.ticket_number, attendeeName: ticket.attendee_name, eventName: event?.name || "Hili event", eventDate: event?.event_date || "Date to be confirmed", ticketTier: tier?.name || "Ticket" });
+      await sendTicketEmail(contact.purchaser_email, { 
+        ticketNumber: ticket.ticket_number, 
+        attendeeName: ticket.attendee_name, 
+        eventName: event?.name || "Hili event", 
+        eventDate: event?.event_date || "Date to be confirmed", 
+        ticketTier: tier?.name || "Ticket",
+        venue: event?.venue,
+        ticketId: ticket.id,
+      });
     }
     await markNotificationSent(orderId, `tickets-${orderId}`);
   } catch (error) {
