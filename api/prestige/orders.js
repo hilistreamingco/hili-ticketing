@@ -54,8 +54,33 @@ export default async function handler(req, res) {
 
     const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-    const { status, fulfillment } = req.query;
+    const { status, fulfillment, orderId } = req.query;
 
+    // If orderId is provided, return single order
+    if (orderId) {
+      const { data: order, error } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          order_items!inner (
+            *,
+            ticket_type:ticket_types (*)
+          ),
+          event:events (*),
+          tickets (*)
+        `)
+        .eq('id', orderId)
+        .single();
+
+      if (error) {
+        console.error('[Orders] Single order error:', error);
+        return res.status(404).json({ error: 'Order not found', details: error.message });
+      }
+
+      return res.json({ order });
+    }
+
+    // Otherwise return list of orders
     let query = supabase
       .from('orders')
       .select('*, order_items(*), event:events(name)')

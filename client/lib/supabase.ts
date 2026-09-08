@@ -382,7 +382,7 @@ export async function fetchPrestigeOrders(
 }
 
 export async function fetchPrestigeOrder(orderId: string): Promise<Order> {
-  const data = await prestigeGet<{ order: Order }>(`/api/prestige/orders/${orderId}`);
+  const data = await prestigeGet<{ order: Order }>(`/api/prestige/orders?orderId=${orderId}`);
   return data.order;
 }
 
