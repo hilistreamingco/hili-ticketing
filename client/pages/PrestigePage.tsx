@@ -257,7 +257,8 @@ function OrderModal({
         ticketNumber: ticket.ticket_number,
         attendeeName: ticket.attendee_name,
         eventName: order.event?.name || "Event",
-        ticketType: order.items?.[0]?.ticket_type_name || "General Admission",
+        // Get tier name from the ticket's ticket_type relationship, fallback to order_items
+        ticketType: ticket.ticket_type?.name || order.items?.[0]?.ticket_type?.name || order.items?.[0]?.ticket_type_name || "General Admission",
         eventDate: order.event?.event_date ? new Date(order.event.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase() : undefined,
         eventVenue: order.event?.venue || undefined,
         orderId: order.id.slice(0, 28), // Shortened order ID

@@ -53,10 +53,11 @@ export async function generateTicketPDF(tickets: TicketData[]): Promise<Blob> {
     const eventLines = doc.splitTextToSize(ticket.eventName.toUpperCase(), 180);
     doc.text(eventLines, 10, 25);
 
-    // Event subtitle (if multiple lines, place below)
+    // Event subtitle - use ticket type description or default
     const subtitleY = eventLines.length > 1 ? 45 : 38;
     doc.setFontSize(16);
-    doc.text('FINAL WATCH PARTY', 10, subtitleY);
+    // Remove hardcoded subtitle
+    // doc.text('FINAL WATCH PARTY', 10, subtitleY);
 
     // Date section
     doc.setTextColor(238, 236, 45);

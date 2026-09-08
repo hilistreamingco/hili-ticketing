@@ -181,7 +181,7 @@ app.all('/api/prestige/orders', async (req, res) => {
     if (orderId) {
       const { data: order, error } = await supabase
         .from('orders')
-        .select('*, order_items(*, ticket_type:ticket_types(*)), event:events(*), tickets(*)')
+        .select('*, order_items(*, ticket_type:ticket_types(*)), event:events(*), tickets(*, ticket_type:ticket_types(*))')
         .eq('id', orderId)
         .single();
 
