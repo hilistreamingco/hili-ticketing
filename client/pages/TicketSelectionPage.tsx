@@ -74,7 +74,6 @@ export default function TicketSelectionPage() {
                     <div>
                       <h3 className="font-display font-semibold">{ticket.name}</h3>
                       <p className="mt-1 text-sm text-muted-foreground">{ticket.description}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">{ticketsLeft(ticket)} available</p>
                     </div>
                     <div className="text-right">
                       <p className="font-display text-lg font-bold">{formatPrice(ticket.price)}</p>
