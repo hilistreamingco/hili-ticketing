@@ -499,29 +499,46 @@ function OrderModal({
 
               {isConfirmed && !isSent && (
                 <>
-                  <Button
-                    onClick={handleSend}
-                    disabled={actionState !== "idle"}
-                    className="h-12 w-full bg-blue-500 text-white hover:bg-blue-600"
-                  >
-                    {actionState === "sending" ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Mail className="mr-2 h-4 w-4" />
-                    )}
-                    Send Ticket via Gmail
-                  </Button>
+                  {/* If no tickets generated yet, show Generate Tickets button */}
+                  {(!order.tickets || order.tickets.length === 0) && (
+                    <Button
+                      onClick={async () => {
+                        setActionState("confirming");
+                        try {
+                          await confirmPrestigePayment(order.id);
+                          showToast("Tickets generated!", "success");
+                          await load();
+                          onRefresh();
+                        } catch (err) {
+                          showToast("Could not generate tickets", "error");
+                        } finally {
+                          setActionState("idle");
+                        }
+                      }}
+                      disabled={actionState !== "idle"}
+                      className="h-12 w-full bg-[#c1ff1a] text-black hover:bg-[#b0ee10]"
+                    >
+                      {actionState === "confirming" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <TicketIcon className="mr-2 h-4 w-4" />}
+                      Generate Tickets
+                    </Button>
+                  )}
+                  {order.tickets && order.tickets.length > 0 && (
+                    <Button
+                      onClick={handleSend}
+                      disabled={actionState !== "idle"}
+                      className="h-12 w-full bg-blue-500 text-white hover:bg-blue-600"
+                    >
+                      {actionState === "sending" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                      Send Ticket via Gmail
+                    </Button>
+                  )}
                   <Button
                     onClick={handleMarkSent}
                     disabled={actionState !== "idle"}
                     variant="outline"
                     className="h-12 w-full border-green-500/30 text-green-400 hover:bg-green-500/10"
                   >
-                    {actionState === "marking" ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="mr-2 h-4 w-4" />
-                    )}
+                    {actionState === "marking" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                     Mark as Sent
                   </Button>
                 </>

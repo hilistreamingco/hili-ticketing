@@ -96,7 +96,7 @@ app.all('/api/prestige/orders', async (req, res) => {
         return res.status(400).json({ error: 'Missing action or orderId', received: { action, orderId } });
       }
 
-      if (action === 'confirm') {
+      if (action === 'confirm' || action === 'generateTickets') {
         const { data: order, error: orderError } = await supabase
           .from('orders')
           .select('*, order_items(*, ticket_type:ticket_types(*)), event:events(*)')
@@ -104,8 +104,15 @@ app.all('/api/prestige/orders', async (req, res) => {
           .single();
 
         if (orderError || !order) return res.status(404).json({ error: 'Order not found', detail: orderError?.message });
-        if (order.status === 'confirmed' || order.status === 'paid') {
-          return res.json({ success: true, message: 'Already confirmed' });
+        
+        // For confirm action, check if already confirmed
+        if (action === 'confirm' && (order.status === 'confirmed' || order.status === 'paid')) {
+          // Check if tickets exist - if not, still generate them
+          const { count } = await supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('order_id', orderId);
+          if (count && count > 0) {
+            return res.json({ success: true, message: 'Already confirmed' });
+          }
+          // Fall through to generate tickets for already-confirmed order
         }
 
         // Get current ticket sequence - handle missing table gracefully
