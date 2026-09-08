@@ -433,6 +433,12 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
         </p>
       )}
 
+      {row && (
+        <p className="mt-2 text-xs text-black/40">
+          Editing: <strong className="text-black/60">{row.name}</strong> <span className="font-mono text-black/30">(ID: {row.id.slice(0, 8)}...)</span>
+        </p>
+      )}
+
       {/* Two-column layout */}
       <div className="mt-8 grid gap-6 lg:grid-cols-[260px_1fr]">
         {/* Poster + is_current */}
