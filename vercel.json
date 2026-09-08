@@ -4,7 +4,10 @@
   "buildCommand": "pnpm build:client",
   "outputDirectory": "dist/spa",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/api/ping", "destination": "/api/ping" },
+    { "source": "/api/admin/me", "destination": "/api/admin/me" },
+    { "source": "/api/admin/events", "destination": "/api/admin/events" },
+    { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
