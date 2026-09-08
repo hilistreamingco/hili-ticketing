@@ -242,6 +242,8 @@ function OrderModal({
   const handleSend = async () => {
     if (!order) return;
     
+    console.log('handleSend called', { order, tickets: order.tickets });
+    
     // Check if order has tickets
     if (!order.tickets || order.tickets.length === 0) {
       showToast("No tickets found. Please confirm payment first to generate tickets.", "error");
@@ -250,9 +252,11 @@ function OrderModal({
     
     setActionState("sending");
     try {
+      console.log('Importing ticket generator...');
       // Generate PDF tickets
       const { generateTicketPDF, openGmailWithTickets } = await import("@/lib/ticketGenerator");
       
+      console.log('Building ticket data...');
       const ticketData = order.tickets.map((ticket: any) => ({
         ticketNumber: ticket.ticket_number,
         attendeeName: ticket.attendee_name,
@@ -264,8 +268,11 @@ function OrderModal({
         orderId: order.id.slice(0, 28), // Shortened order ID
       }));
 
+      console.log('Ticket data:', ticketData);
+      console.log('Generating PDF...');
       const pdfBlob = await generateTicketPDF(ticketData);
       
+      console.log('Opening Gmail...');
       // Open Gmail with pre-filled message
       openGmailWithTickets(
         order.purchaser_email,
