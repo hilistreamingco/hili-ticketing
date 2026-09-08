@@ -271,14 +271,26 @@ function OrderModal({
         ticketData
       );
 
-      // Mark as sent in backend
-      await sendPrestigeTicket(order.id);
-      
-      showToast("Gmail opened with ticket PDF downloaded", "success");
+      showToast("Gmail opened - send the email then click 'Mark as Sent'", "success");
       await load();
       onRefresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Could not generate tickets", "error");
+    } finally {
+      setActionState("idle");
+    }
+  };
+
+  const handleMarkSent = async () => {
+    if (!order) return;
+    setActionState("marking");
+    try {
+      await sendPrestigeTicket(order.id);
+      showToast("Order marked as sent", "success");
+      await load();
+      onRefresh();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not mark as sent", "error");
     } finally {
       setActionState("idle");
     }
@@ -448,18 +460,33 @@ function OrderModal({
               )}
 
               {isConfirmed && !isSent && (
-                <Button
-                  onClick={handleSend}
-                  disabled={actionState !== "idle"}
-                  className="h-12 w-full bg-blue-500 text-white hover:bg-blue-600"
-                >
-                  {actionState === "sending" ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="mr-2 h-4 w-4" />
-                  )}
-                  Send Ticket
-                </Button>
+                <>
+                  <Button
+                    onClick={handleSend}
+                    disabled={actionState !== "idle"}
+                    className="h-12 w-full bg-blue-500 text-white hover:bg-blue-600"
+                  >
+                    {actionState === "sending" ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Mail className="mr-2 h-4 w-4" />
+                    )}
+                    Send Ticket via Gmail
+                  </Button>
+                  <Button
+                    onClick={handleMarkSent}
+                    disabled={actionState !== "idle"}
+                    variant="outline"
+                    className="h-12 w-full border-green-500/30 text-green-400 hover:bg-green-500/10"
+                  >
+                    {actionState === "marking" ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                    )}
+                    Mark as Sent
+                  </Button>
+                </>
               )}
 
               {isSent && (
