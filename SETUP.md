@@ -2,19 +2,21 @@
 
 All code is complete. Follow these steps to finish deployment:
 
-## 1. Run Database Migrations
+## 1. Run Database Migration
 
-Go to your Supabase project → SQL Editor and run these in order:
+Go to your Supabase project → SQL Editor and run migration 005:
 
-### Migration 003 (optional — makes org_id nullable)
-Copy the entire content of `supabase/migrations/003_remove_org_dependency.sql` and paste it into the SQL Editor, then click Run.
+### Migration 005 (all-in-one setup)
+Copy the entire content of `supabase/migrations/005_fresh_email_auth.sql` and paste it into the SQL Editor, then click Run.
 
-**Note:** This migration drops the `events_slug_key` constraint (which was blocking duplicate slugs). The server now handles slug conflicts by appending timestamps.
+**What it does:**
+- Makes `organization_id` nullable in events table
+- Drops `organizations` and `organization_members` tables entirely
+- Creates `audit_log` and `payment_config` tables (if missing)
+- Sets up email-based auth (ADMIN_EMAILS / PRESTIGE_EMAILS)
+- Configures RLS policies for service role writes + authenticated reads
 
-### Migration 004 (required — removes organizations entirely)
-Copy the entire content of `supabase/migrations/004_remove_organizations.sql` and paste it into the SQL Editor, then click Run.
-
-**Why:** These migrations remove the `organizations` and `organization_members` tables entirely. Auth is now email-based (ADMIN_EMAILS / PRESTIGE_EMAILS env vars).
+**Note:** This migration is safe to run even if you've partially run other migrations. It uses `IF NOT EXISTS` and `IF EXISTS` throughout.
 
 ---
 
@@ -126,9 +128,11 @@ The errors will disappear.
 → Get the key from Supabase Dashboard → Settings → API → `service_role` (secret).  
 → Add it to `.env` (local) and Vercel env vars (production).
 
+### "relation public.audit_log does not exist"
+→ Run migration 005 instead — it creates audit_log if missing (migrations 003/004 assumed you'd run 001 first)
+
 ### "drop index events_slug_key" fails
-→ Run migration 003 again (it's now fixed to drop the constraint first, then the index)  
-→ Or manually run: `ALTER TABLE public.events DROP CONSTRAINT IF EXISTS events_slug_key;`
+→ Migration 005 handles this correctly — run it instead of 003/004
 
 ### Vercel build fails with "node:path" error
 → Fixed in latest commit — re-deploy from the updated branch
