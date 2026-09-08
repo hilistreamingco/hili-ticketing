@@ -116,26 +116,31 @@ app.all('/api/prestige/orders', async (req, res) => {
         }
 
         // Get highest existing ticket number to avoid race conditions
-        const { data: lastTicket } = await supabase
+        // Sort by length first then alphabetically to handle SBTB001, SBTB002...SBTB999
+        const { data: allTickets } = await supabase
           .from('tickets')
-          .select('ticket_number')
-          .order('ticket_number', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .select('ticket_number');
         
         let nextNumber = 1;
-        if (lastTicket?.ticket_number) {
-          const match = lastTicket.ticket_number.match(/\d+$/);
-          if (match) nextNumber = parseInt(match[0]) + 1;
+        if (allTickets && allTickets.length > 0) {
+          const maxNum = allTickets.reduce((max: number, t: any) => {
+            const match = t.ticket_number?.match(/(\d+)$/);
+            const num = match ? parseInt(match[1]) : 0;
+            return Math.max(max, num);
+          }, 0);
+          nextNumber = maxNum + 1;
         }
 
         const tickets = [];
         const items = order.order_items || [];
 
+        // Get a valid ticket_type_id - use from order_items or look up from event
+        const defaultTicketTypeId = items[0]?.ticket_type_id || null;
+
         if (items.length === 0) {
           tickets.push({
             order_id: order.id,
-            ticket_type_id: null,
+            ticket_type_id: defaultTicketTypeId,
             attendee_name: order.purchaser_name,
             ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
             event_id: order.event_id,
@@ -145,11 +150,11 @@ app.all('/api/prestige/orders', async (req, res) => {
             const qty = item.quantity || 1;
             const attendeeNames = (item.attendee_names && item.attendee_names.length >= qty)
               ? item.attendee_names
-              : Array(qty).fill(null).map((_, i) => item.attendee_names?.[i] || order.purchaser_name);
+              : Array(qty).fill(null).map((_: any, i: number) => item.attendee_names?.[i] || order.purchaser_name);
             for (const name of attendeeNames) {
               tickets.push({
                 order_id: order.id,
-                ticket_type_id: item.ticket_type_id || null,
+                ticket_type_id: item.ticket_type_id || defaultTicketTypeId,
                 attendee_name: name,
                 ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
                 event_id: order.event_id,
