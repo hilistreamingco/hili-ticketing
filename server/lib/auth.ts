@@ -17,7 +17,17 @@ export function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set in environment");
-  _client ??= createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  _client ??= createClient(url, key, { 
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (url, options = {}) => {
+        return fetch(url, {
+          ...options,
+          signal: AbortSignal.timeout(8000) // 8 second timeout
+        });
+      }
+    }
+  });
   return _client;
 }
 
@@ -42,18 +52,26 @@ export async function getAuthedUser(authHeader: string | undefined): Promise<Aut
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice(7);
 
-  const supabase = getServiceClient();
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user?.email) return null;
+  try {
+    const supabase = getServiceClient();
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data.user?.email) {
+      console.error("Auth error:", error?.message || "No user email");
+      return null;
+    }
 
-  const email = data.user.email.toLowerCase();
-  const admins = adminEmails();
-  const prestige = prestigeEmails();
+    const email = data.user.email.toLowerCase();
+    const admins = adminEmails();
+    const prestige = prestigeEmails();
 
-  if (admins.includes(email)) return { uid: data.user.id, email, role: "hili_admin" };
-  if (prestige.includes(email)) return { uid: data.user.id, email, role: "prestige_admin" };
+    if (admins.includes(email)) return { uid: data.user.id, email, role: "hili_admin" };
+    if (prestige.includes(email)) return { uid: data.user.id, email, role: "prestige_admin" };
 
-  return null; // not in any list
+    return null; // not in any list
+  } catch (err) {
+    console.error("getAuthedUser failed:", err);
+    return null; // Return null instead of throwing on timeout
+  }
 }
 
 export function requireHiliAdmin(user: AuthUser | null): boolean {
