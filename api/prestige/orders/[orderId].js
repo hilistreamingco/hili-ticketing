@@ -55,41 +55,21 @@ export default async function handler(req, res) {
     const supabase = createClient(url, key, { auth: { persistSession: false } });
 
     const { orderId } = req.query;
-    
-    console.log('[OrderDetail] Fetching order:', orderId);
-
-    if (!orderId) {
-      return res.status(400).json({ error: 'Order ID is required' });
-    }
 
     const { data: order, error } = await supabase
       .from('orders')
-      .select(`
-        *,
-        order_items!inner (
-          *,
-          ticket_type:ticket_types (*)
-        ),
-        event:events (*),
-        tickets (*)
-      `)
+      .select('*, order_items(*, ticket_type:ticket_types(*)), event:events(*), tickets(*)')
       .eq('id', orderId)
       .single();
 
     if (error) {
-      console.error('[OrderDetail] Supabase error:', error);
-      return res.status(404).json({ error: 'Order not found', details: error.message });
-    }
-
-    if (!order) {
-      console.error('[OrderDetail] No order returned');
+      console.error('Get order error:', error);
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    console.log('[OrderDetail] Order found:', order.order_number);
     return res.json({ order });
   } catch (error) {
-    console.error('[OrderDetail] Exception:', error);
-    return res.status(500).json({ error: 'Internal server error', details: error.message });
+    console.error('Get order error:', error);
+    return res.status(404).json({ error: 'Order not found' });
   }
 }
