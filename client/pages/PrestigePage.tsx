@@ -255,7 +255,7 @@ function OrderModal({
       }
       
       // Generate PDF tickets
-      const { generateTicketPDF, openGmailWithTickets } = await import("@/lib/ticketGenerator");
+      const { generateTicketPDF } = await import("@/lib/ticketGenerator");
       
       const ticketData = fresh.tickets.map((ticket: any) => ({
         ticketNumber: ticket.ticket_number,
@@ -269,15 +269,28 @@ function OrderModal({
 
       const pdfBlob = await generateTicketPDF(ticketData);
       
-      openGmailWithTickets(
-        fresh.purchaser_email,
-        fresh.purchaser_name,
-        fresh.event?.name || "Event",
-        pdfBlob,
-        ticketData
-      );
+      // Download PDF
+      const ticketNumbers = ticketData.map((t: any) => t.ticketNumber).join('-');
+      const sanitizedName = fresh.purchaser_name.replace(/[^a-zA-Z0-9]/g, '');
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${sanitizedName}-${ticketNumbers}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-      showToast("Gmail opened - send the email then click 'Mark as Sent'", "success");
+      // Open Gmail - must happen after user gesture (click), so open immediately
+      const eventName = fresh.event?.name || "Event";
+      const subject = encodeURIComponent(`Your "${eventName}" Tickets`);
+      const body = encodeURIComponent(
+        `Hey ${fresh.purchaser_name},\n\nThank you for trusting HILI X BEERBIRDS!\n\nYour tickets for ${eventName} are attached to this email.\n\nSee you at the event!\n\n- HILI Team`
+      );
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(fresh.purchaser_email)}&su=${subject}&body=${body}`;
+      window.open(gmailUrl, '_blank', 'noopener');
+
+      showToast("PDF downloaded & Gmail opened - attach PDF and send!", "success");
       onRefresh();
     } catch (err) {
       console.error("Send ticket error:", err);

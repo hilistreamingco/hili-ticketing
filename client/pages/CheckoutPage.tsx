@@ -226,28 +226,31 @@ export default function CheckoutPage() {
       });
   }, [event?.slug]);
 
-  // Restore form state from localStorage
+  // Restore form state from localStorage - only on mount
+  const restoredRef = useState(false);
   useEffect(() => {
+    if (restoredRef[0]) return;
     const savedState = localStorage.getItem(`checkout-${slug}`);
     if (savedState) {
       try {
         const parsed = JSON.parse(savedState);
-        setMpesaName(parsed.mpesaName || names[0] || '');
-        setPhone(parsed.phone || '');
-        setTxCode(parsed.txCode || '');
+        if (!mpesaName) setMpesaName(parsed.mpesaName || names[0] || '');
+        if (!phone) setPhone(parsed.phone || '');
+        if (!txCode) setTxCode(parsed.txCode || '');
       } catch {}
     }
-  }, [slug, names]);
+    restoredRef[1](true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
 
-  // Save form state to localStorage
+  // Save form state to localStorage (debounced)
   useEffect(() => {
-    if (slug) {
-      localStorage.setItem(`checkout-${slug}`, JSON.stringify({
-        mpesaName,
-        phone,
-        txCode,
-      }));
-    }
+    if (!slug) return;
+    const timer = setTimeout(() => {
+      localStorage.setItem(`checkout-${slug}`, JSON.stringify({ mpesaName, phone, txCode }));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [slug, mpesaName, phone, txCode]);
   }, [slug, mpesaName, phone, txCode]);
 
   const ticket = event?.ticketTypes.find((t: any) => t.id === params.get("ticket")) || event?.ticketTypes[0];
