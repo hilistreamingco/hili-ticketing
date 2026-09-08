@@ -17,18 +17,26 @@ export function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set in environment");
-  _client ??= createClient(url, key, { 
+  
+  // Create fresh client each time to avoid stale connections in serverless
+  return createClient(url, key, { 
     auth: { persistSession: false, autoRefreshToken: false },
+    db: { schema: 'public' },
     global: {
+      headers: {
+        'x-client-info': 'vercel-serverless'
+      },
       fetch: (url, options = {}) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        
         return fetch(url, {
           ...options,
-          signal: AbortSignal.timeout(8000) // 8 second timeout
-        });
+          signal: controller.signal
+        }).finally(() => clearTimeout(timeout));
       }
     }
   });
-  return _client;
 }
 
 function adminEmails(): string[] {

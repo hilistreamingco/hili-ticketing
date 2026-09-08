@@ -17,17 +17,31 @@ export const handleGetMyRole: RequestHandler = async (req, res) => {
 
 // ── GET /api/admin/events ──────────────────────────────────────────────────
 export const handleGetEvents: RequestHandler = async (req, res) => {
-  const user = await getAuthedUser(req.headers.authorization);
-  if (!requireHiliAdmin(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
-
+  const startTime = Date.now();
+  console.log('[GET EVENTS] Starting...');
+  
   try {
+    const user = await getAuthedUser(req.headers.authorization);
+    console.log(`[GET EVENTS] Auth check: ${Date.now() - startTime}ms`);
+    
+    if (!requireHiliAdmin(user)) { 
+      res.status(401).json({ error: "Unauthorized" }); 
+      return; 
+    }
+
+    const queryStart = Date.now();
     const { data, error } = await getServiceClient()
       .from("events")
       .select("*")
       .order("created_at", { ascending: false });
+    
+    console.log(`[GET EVENTS] Query: ${Date.now() - queryStart}ms`);
+    console.log(`[GET EVENTS] Total: ${Date.now() - startTime}ms`);
+    
     if (error) throw error;
     res.json({ events: data ?? [] });
   } catch (err) {
+    console.error('[GET EVENTS] Error:', err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Could not load events" });
   }
 };
