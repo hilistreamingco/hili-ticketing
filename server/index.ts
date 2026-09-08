@@ -5,12 +5,6 @@ import { handleDemo } from "./routes/demo.js";
 import { handleMpesaCallback, handleMpesaStkPush, handleMpesaStatus } from "./routes/mpesa.js";
 import { handleContactEmail } from "./routes/contact.js";
 import {
-  handlePrestigeStats,
-  handleListOrders,
-  handleGetOrder,
-  handleConfirmPayment,
-  handleMarkNotFound,
-  handleSendTicket,
   handleGetPaymentConfig,
   handleUpsertPaymentConfig,
   handleCreateManualOrder,
@@ -64,13 +58,8 @@ export function createServer() {
   // ── Payment config (public read) ─────────────────────────────────────────
   app.get("/api/payment-config/:eventSlug", handleGetPaymentConfig);
 
-  // ── Prestige dashboard API (auth-gated) ───────────────────────────────────
-  app.get("/api/prestige/stats", handlePrestigeStats);
-  app.get("/api/prestige/orders", handleListOrders);
-  app.get("/api/prestige/orders/:orderId", handleGetOrder);
-  app.post("/api/prestige/orders/confirm", handleConfirmPayment);
-  app.post("/api/prestige/orders/not-found", handleMarkNotFound);
-  app.post("/api/prestige/orders/send-ticket", handleSendTicket);
+  // ── Prestige payment config update (auth-gated) ───────────────────────────
+  // NOTE: Other Prestige endpoints (/api/prestige/*) are serverless functions in api/prestige/
   app.put("/api/prestige/payment-config", handleUpsertPaymentConfig);
 
   return app;
