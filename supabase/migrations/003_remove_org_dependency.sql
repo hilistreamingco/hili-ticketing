@@ -9,11 +9,9 @@ alter table public.events
 
 -- Drop the unique constraint on slug so duplicate event names don't crash.
 -- We now generate unique slugs server-side with a timestamp suffix.
-drop index if exists public.events_slug_key;
 alter table public.events drop constraint if exists events_slug_key;
 
--- Re-add as unique but allow us to handle conflicts in application code.
--- (The index is needed for RLS/query performance, constraint is optional)
+-- Re-add as a unique index (not constraint) for query performance
 create unique index if not exists events_slug_unique on public.events(slug);
 
 -- Drop the unique partial index on is_current (prevents more than one current event).
