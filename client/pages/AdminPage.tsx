@@ -192,16 +192,17 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
 // ── Overview ──────────────────────────────────────────────────────────────────
 function Overview() {
-  const [stats, setStats] = useState({ events: 0, orders: 0, confirmed: 0, revenue: 0, sold: 0 });
+  const [stats, setStats] = useState({ events: 0, orders: 0, confirmed: 0, revenue: 0, sold: 0, attendees: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       if (!supabase) { setLoading(false); return; }
-      const [evRes, ordRes] = await Promise.all([
+      const [evRes, ordRes, ticketRes] = await Promise.all([
         supabase.from("events").select("id").eq("status", "published"),
         supabase.from("orders").select("status, amount_kes, order_items(quantity)"),
+        supabase.from("tickets").select("id, order:orders!inner(status)").in("order.status", ["confirmed", "paid"]),
       ]);
       if (!active) return;
       const orders = (ordRes.data ?? []) as Array<{ status: string; amount_kes: number; order_items: Array<{ quantity: number }> }>;
@@ -212,6 +213,7 @@ function Overview() {
         confirmed: conf.length,
         revenue: conf.reduce((s, o) => s + o.amount_kes, 0),
         sold: conf.reduce((s, o) => s + (o.order_items ?? []).reduce((ss, i) => ss + i.quantity, 0), 0),
+        attendees: ticketRes.data?.length ?? 0,
       });
       setLoading(false);
     };
@@ -229,8 +231,8 @@ function Overview() {
           <Metric label="Total orders" value={String(stats.orders)} />
           <Metric label="Confirmed orders" value={String(stats.confirmed)} />
           <Metric label="Tickets sold" value={String(stats.sold)} />
+          <Metric label="Verified attendees" value={String(stats.attendees)} />
           <Metric label="Confirmed revenue" value={`KES ${stats.revenue.toLocaleString("en-KE")}`} accent />
-          <Metric label="Ops dashboard" value="Prestige →" />
         </div>
       )}
       <div className="mt-8 rounded-3xl border border-black/10 bg-white p-6">
