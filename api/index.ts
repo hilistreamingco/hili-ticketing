@@ -220,21 +220,14 @@ app.all('/api/prestige/orders', async (req, res) => {
 
     // GET list
     const { status, fulfillment } = req.query;
-    let query = supabase.from('orders').select('*, order_items(*), event:events(name)');
+    let query = supabase.from('orders').select('*, order_items(*), event:events(name)').order('created_at', { ascending: false });
 
-    if (status === 'pending') query = query.in('status', ['pending', 'processing']).order('created_at', { ascending: false });
+    if (status === 'pending') query = query.in('status', ['pending', 'processing']);
     else if (status === 'confirmed') {
       query = query.in('status', ['confirmed', 'paid']);
       if (fulfillment) query = query.eq('fulfillment_status', fulfillment);
-      // Sort by confirmation time (newest first), fallback to created_at
-      query = query.order('confirmed_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
     }
-    else if (status === 'sent') {
-      query = query.in('status', ['confirmed', 'paid']).eq('fulfillment_status', 'sent').order('created_at', { ascending: false });
-    }
-    else {
-      query = query.order('created_at', { ascending: false });
-    }
+    else if (status === 'sent') query = query.in('status', ['confirmed', 'paid']).eq('fulfillment_status', 'sent');
 
     const { data: orders } = await query;
     res.json({ orders: orders || [] });
