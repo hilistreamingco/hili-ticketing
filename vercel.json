@@ -8,7 +8,9 @@
       "maxDuration": 30
     }
   },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+  "routes": [
+    { "src": "/api/prestige/(.*)", "dest": "/api/prestige/$1" },
+    { "src": "/api/(.*)", "dest": "/api/index" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
