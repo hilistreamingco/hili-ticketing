@@ -113,7 +113,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Send notification email to ops team
     const resendKey = process.env.RESEND_API_KEY;
-    const opsEmail = process.env.OPS_NOTIFICATION_EMAIL || process.env.CONTACT_TO_EMAIL || 'hilistreaming.co@gmail.com';
+    // Primary notification email - must match Resend account email when using onboarding@resend.dev sender
+    const opsEmail = process.env.OPS_NOTIFICATION_EMAIL || 'hilistreaming.co@gmail.com';
 
     if (resendKey) {
       try {
