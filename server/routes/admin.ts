@@ -60,17 +60,11 @@ export const handleCreateEvent: RequestHandler = async (req, res) => {
 
     const slug = existing ? `${base}-${Date.now()}` : base;
 
-    // organization_id is now optional — use existing org or skip
-    const { data: org } = await supabase
-      .from("organizations")
-      .select("id")
-      .limit(1)
-      .maybeSingle();
-
+    // No organization needed — organization_id is nullable after migration 005
     const { data, error } = await supabase
       .from("events")
       .insert({
-        organization_id: org?.id ?? null,
+        organization_id: null,
         slug,
         name: (body.name as string).trim(),
         short_description: (body.short_description as string) || null,
