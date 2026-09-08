@@ -15,7 +15,7 @@ import Layout from "@/components/layout/Layout";
 import PlaceholderPage from "@/components/PlaceholderPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { events, formatPrice, getEventBySlug } from "@/lib/events";
+import { formatPrice, getEventBySlug } from "@/lib/events";
 import type { PaymentConfig } from "@shared/api";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -173,10 +173,9 @@ function ConfirmationScreen({
 export default function CheckoutPage() {
   const { slug } = useParams();
   const [params] = useSearchParams();
+  const [event, setEvent] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const event = getEventBySlug(slug || events[0].slug);
-  const ticket =
-    event?.ticketTypes.find((t) => t.id === params.get("ticket")) || event?.ticketTypes[0];
   const quantity = Number(params.get("quantity")) || 1;
   const email = params.get("email") || "";
   const names = (() => {
@@ -196,6 +195,21 @@ export default function CheckoutPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
 
+  // Load event
+  useEffect(() => {
+    if (!slug) return;
+    let active = true;
+    const load = async () => {
+      const ev = await getEventBySlug(slug);
+      if (active) {
+        setEvent(ev);
+        setLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [slug]);
+
   // Load payment config for this event
   useEffect(() => {
     if (!event?.slug) return;
@@ -206,6 +220,18 @@ export default function CheckoutPage() {
       })
       .catch(() => undefined);
   }, [event?.slug]);
+
+  const ticket = event?.ticketTypes.find((t: any) => t.id === params.get("ticket")) || event?.ticketTypes[0];
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-black/30" />
+        </div>
+      </Layout>
+    );
+  }
 
   if (!event || !ticket) {
     return (
