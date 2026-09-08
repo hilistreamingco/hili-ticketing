@@ -113,49 +113,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Send notification email to ops team
     const resendKey = process.env.RESEND_API_KEY;
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-    const opsEmail = process.env.OPS_NOTIFICATION_EMAIL || process.env.CONTACT_TO_EMAIL;
+    const opsEmail = process.env.OPS_NOTIFICATION_EMAIL || process.env.CONTACT_TO_EMAIL || 'hilistreaming.co@gmail.com';
 
-    if (resendKey && opsEmail) {
+    if (resendKey) {
       try {
-        const Resend = (await import('resend')).Resend;
+        const { Resend } = await import('resend');
         const resend = new Resend(resendKey);
         
         const prestigeDashboardUrl = 'https://hili-ticketing.vercel.app/admin/prestige';
         
+        // Use onboarding@resend.dev as from - delivers to verified Resend account email only
+        // For production: verify hili.co domain in Resend dashboard
         await resend.emails.send({
-          from: fromEmail,
-          to: opsEmail,
+          from: 'HILI Tickets <onboarding@resend.dev>',
+          to: [opsEmail],
           subject: `🎟️ New Order: ${order.order_number} - KES ${amountKes}`,
           html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-              <h2 style="color: #333;">New Ticket Order Received</h2>
-              <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <p><strong>Order Number:</strong> ${order.order_number}</p>
-                <p><strong>Customer:</strong> ${purchaserName}</p>
-                <p><strong>Email:</strong> ${purchaserEmail}</p>
-                <p><strong>Phone:</strong> ${purchaserPhone}</p>
-                <p><strong>Event:</strong> ${event.name}</p>
-                <p><strong>Ticket Type:</strong> ${ticketType.name}</p>
-                <p><strong>Quantity:</strong> ${attendeeNames.length}</p>
-                <p><strong>Amount:</strong> KES ${amountKes.toLocaleString()}</p>
-                ${mpesaName ? `<p><strong>M-Pesa Name:</strong> ${mpesaName}</p>` : ''}
-                ${mpesaTransactionCode ? `<p><strong>Transaction Code:</strong> ${mpesaTransactionCode}</p>` : ''}
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9;">
+              <div style="background: #c1ff1a; padding: 16px 20px; border-radius: 8px 8px 0 0;">
+                <h2 style="margin: 0; color: #000; font-size: 18px;">🎟️ New Ticket Order</h2>
               </div>
-              <div style="margin: 30px 0;">
-                <a href="${prestigeDashboardUrl}" style="display: inline-block; background: #c1ff1a; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                  View in Prestige Dashboard →
-                </a>
+              <div style="background: white; padding: 20px; border-radius: 0 0 8px 8px; border: 1px solid #eee;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr><td style="padding: 8px 0; color: #666; width: 140px;">Order Number</td><td style="padding: 8px 0; font-weight: bold;">${order.order_number}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #666;">Customer</td><td style="padding: 8px 0;">${purchaserName}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #666;">Email</td><td style="padding: 8px 0;">${purchaserEmail}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #666;">Phone</td><td style="padding: 8px 0;">${purchaserPhone}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #666;">Event</td><td style="padding: 8px 0;">${event.name}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #666;">Tier</td><td style="padding: 8px 0;">${ticketType.name}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #666;">Tickets</td><td style="padding: 8px 0;">${attendeeNames.length}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #666;">Amount</td><td style="padding: 8px 0; font-weight: bold; color: #2a7a00;">KES ${Number(amountKes).toLocaleString()}</td></tr>
+                  ${mpesaName ? `<tr><td style="padding: 8px 0; color: #666;">M-Pesa Name</td><td style="padding: 8px 0;">${mpesaName}</td></tr>` : ''}
+                  ${mpesaTransactionCode ? `<tr><td style="padding: 8px 0; color: #666;">Transaction Code</td><td style="padding: 8px 0; font-family: monospace; font-weight: bold;">${mpesaTransactionCode}</td></tr>` : ''}
+                </table>
+                <div style="margin-top: 24px;">
+                  <a href="${prestigeDashboardUrl}" style="display: inline-block; background: #c1ff1a; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    Open Prestige Dashboard →
+                  </a>
+                </div>
               </div>
-              <p style="color: #666; font-size: 12px; margin-top: 30px;">
-                Log in to the Prestige Dashboard to verify the payment and send tickets.
-              </p>
             </div>
           `,
         });
+        console.log('Ops notification sent to:', opsEmail);
       } catch (emailError) {
         console.error('Failed to send ops notification:', emailError);
-        // Don't fail the request if email fails
       }
     }
 
