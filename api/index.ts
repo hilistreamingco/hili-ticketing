@@ -54,7 +54,12 @@ app.get('/api/prestige/stats', async (req, res) => {
 
     const supabase = getSupabase();
     const { data: orders } = await supabase.from('orders').select('status, amount_kes, fulfillment_status');
-    const { data: tickets } = await supabase.from('tickets').select('id');
+    
+    // Only count tickets from confirmed/paid orders
+    const { data: tickets } = await supabase
+      .from('tickets')
+      .select('id, order:orders!inner(status)')
+      .in('order.status', ['confirmed', 'paid']);
 
     const confirmedOrders = orders?.filter((o: any) => o.status === 'confirmed' || o.status === 'paid') || [];
 
