@@ -1,5 +1,5 @@
 import type { RequestHandler } from "express";
-import { getAuthedUser, requirePrestigeAccess, requireHiliAdmin } from "../lib/auth";
+import { getAuthedUser, requirePrestigeAccess, requireHiliAdmin } from "../lib/auth.js";
 import {
   getAllOrders,
   getOrderById,

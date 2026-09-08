@@ -1,9 +1,9 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { handleDemo } from "./routes/demo";
-import { handleMpesaCallback, handleMpesaStkPush, handleMpesaStatus } from "./routes/mpesa";
-import { handleContactEmail } from "./routes/contact";
+import { handleDemo } from "./routes/demo.js";
+import { handleMpesaCallback, handleMpesaStkPush, handleMpesaStatus } from "./routes/mpesa.js";
+import { handleContactEmail } from "./routes/contact.js";
 import {
   handlePrestigeStats,
   handleListOrders,
@@ -14,7 +14,7 @@ import {
   handleGetPaymentConfig,
   handleUpsertPaymentConfig,
   handleCreateManualOrder,
-} from "./routes/prestige";
+} from "./routes/prestige.js";
 import {
   handleGetEvents,
   handleCreateEvent,
@@ -25,7 +25,7 @@ import {
   handleDeleteTicketType,
   handleUploadPoster,
   handleGetMyRole,
-} from "./routes/admin";
+} from "./routes/admin.js";
 
 export function createServer() {
   const app = express();

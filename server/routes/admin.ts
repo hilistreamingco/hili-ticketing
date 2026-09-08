@@ -3,7 +3,7 @@
  * Auth is email-based: set ADMIN_EMAILS in .env.
  */
 import type { RequestHandler } from "express";
-import { getAuthedUser, getServiceClient, requireHiliAdmin } from "../lib/auth";
+import { getAuthedUser, getServiceClient, requireHiliAdmin } from "../lib/auth.js";
 
 // ── GET /api/admin/me ──────────────────────────────────────────────────────
 export const handleGetMyRole: RequestHandler = async (req, res) => {
