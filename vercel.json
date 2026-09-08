@@ -6,7 +6,11 @@
   "rewrites": [
     { "source": "/api/ping", "destination": "/api/ping" },
     { "source": "/api/admin/me", "destination": "/api/admin/me" },
+    { "source": "/api/admin/events/:id/tickets", "destination": "/api/admin/events/[id]/tickets" },
+    { "source": "/api/admin/events/:id", "destination": "/api/admin/events/[id]" },
     { "source": "/api/admin/events", "destination": "/api/admin/events" },
+    { "source": "/api/admin/tickets/:id", "destination": "/api/admin/tickets/[id]" },
+    { "source": "/api/admin/tickets", "destination": "/api/admin/tickets" },
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

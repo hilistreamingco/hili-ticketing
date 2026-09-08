@@ -29,7 +29,7 @@ function getAuthedUser(authHeader: string | undefined) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   if (req.method === 'OPTIONS') {
@@ -42,6 +42,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    const { id } = req.query;
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ error: 'Ticket ID required' });
+    }
+
     const url = process.env.VITE_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) {
@@ -50,66 +55,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-    if (req.method === 'GET') {
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      return res.json({ events: data || [] });
-    }
-
-    if (req.method === 'POST') {
+    // PUT - Update ticket type
+    if (req.method === 'PUT') {
       const body = req.body;
-      if (!body.name || typeof body.name !== 'string') {
-        return res.status(400).json({ error: 'Event name is required' });
-      }
-
-      const base = body.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '') || 'event';
-
-      const { data: existing } = await supabase
-        .from('events')
-        .select('id')
-        .eq('slug', base)
-        .maybeSingle();
-
-      const slug = existing ? `${base}-${Date.now()}` : base;
-
       const { data, error } = await supabase
-        .from('events')
-        .insert({
-          organization_id: null,
-          slug,
-          name: body.name.trim(),
-          short_description: body.short_description || null,
-          description: body.description || null,
-          poster_path: body.poster_path || null,
-          venue: body.venue || null,
-          address: body.address || null,
-          city: body.city || null,
-          event_date: body.event_date || null,
-          start_time: body.start_time || null,
-          end_time: body.end_time || null,
-          venue_map_url: body.venue_map_url || null,
-          status: body.status || 'published',
-          is_current: Boolean(body.is_current),
-          theme: body.theme || {},
-          settings: body.settings || {},
+        .from('ticket_types')
+        .update({
+          name: body.name,
+          description: body.description,
+          price_kes: body.price_kes,
+          quantity_total: body.quantity_total,
+          min_per_order: body.min_per_order,
+          max_per_order: body.max_per_order,
+          sales_start: body.sales_start,
+          sales_end: body.sales_end,
+          is_visible: body.is_visible,
+          is_active: body.is_active,
+          sort_order: body.sort_order,
         })
+        .eq('id', id)
         .select()
         .single();
 
       if (error) throw error;
-      return res.status(201).json({ event: data });
+      return res.json({ ticket: data });
+    }
+
+    // DELETE - Delete ticket type
+    if (req.method === 'DELETE') {
+      const { error } = await supabase
+        .from('ticket_types')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      return res.json({ success: true });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
-    console.error('Events API error:', error);
+    console.error('Ticket API error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }
