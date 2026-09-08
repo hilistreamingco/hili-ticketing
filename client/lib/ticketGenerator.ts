@@ -131,12 +131,13 @@ export async function generateTicketPDF(tickets: TicketData[]): Promise<Blob> {
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(7);
     doc.setFont('helvetica', 'bold');
-    doc.text('SCAN AT ENTRY', 245, 96, { align: 'center' });
+    doc.text('SCAN AT ENTRY', 245, 89, { align: 'center' });
 
-    // Ticket number below QR - make it more prominent
-    doc.setFontSize(12);
+    // Ticket number - move above the bottom strip
+    doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text(ticket.ticketNumber || 'SBTB001', 245, 101, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    doc.text(ticket.ticketNumber || 'SBTB001', 245, 95, { align: 'center' });
 
     // Bottom yellow strip
     doc.setFillColor(238, 236, 45);

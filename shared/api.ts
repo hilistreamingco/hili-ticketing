@@ -48,6 +48,12 @@ export interface Order {
   order_number: string;
   event_id: string;
   event_name?: string;
+  event?: {
+    id: string;
+    name: string;
+    venue?: string;
+    event_date?: string;
+  };
   purchaser_name: string;
   purchaser_email: string;
   purchaser_phone: string;
@@ -66,6 +72,12 @@ export interface Order {
   created_at: string;
   paid_at: string | null;
   items?: OrderItem[];
+  tickets?: Array<{
+    id: string;
+    ticket_number: string;
+    attendee_name: string;
+    ticket_type?: { name: string };
+  }>;
 }
 
 // ── Manual order creation ──────────────────────────────────────────────────

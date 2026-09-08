@@ -278,9 +278,11 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
   const refresh = useCallback(async () => {
     try {
       const rows = await getAdminEvents();
+      // For current event: find is_current=true, or fall back to most recent published
+      // For future event: find non-current non-archived, or fall back to second most recent
       const found = isCurrent
-        ? rows.find(e => e.is_current)
-        : rows.find(e => !e.is_current && e.status !== "archived");
+        ? (rows.find(e => e.is_current) ?? rows.find(e => e.status === 'published') ?? rows[0])
+        : (rows.find(e => !e.is_current && e.status !== "archived") ?? rows[1] ?? rows[0]);
       if (found) {
         setRow(found);
         setDraft({
