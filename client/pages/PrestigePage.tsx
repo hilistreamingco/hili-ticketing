@@ -392,6 +392,22 @@ function OrderModal({
                 <Row label="Quantity" value={String(qty)} />
                 <Row label="Amount" value={formatKes(order.amount_kes)} highlight />
               </div>
+              {/* Generated tickets */}
+              {order.tickets && order.tickets.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs text-white/40">Generated Tickets</p>
+                  <ul className="mt-1 space-y-0.5 text-sm">
+                    {order.tickets.map((t: any, i: number) => (
+                      <li key={i} className="font-mono text-[#c1ff1a]">
+                        {t.ticket_number} — {t.attendee_name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {order.tickets && order.tickets.length === 0 && (order.status === 'confirmed' || order.status === 'paid') && (
+                <p className="mt-2 text-xs text-red-400">⚠ No tickets generated yet</p>
+              )}
               {order.items?.[0]?.attendee_names?.length ? (
                 <div className="mt-3">
                   <p className="text-xs text-white/40">Attendees</p>
