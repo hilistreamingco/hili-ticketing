@@ -34,7 +34,7 @@ export async function generateTicketPDF(tickets: TicketData[]): Promise<Blob> {
     // Small HILI x BEERBIRDS text on yellow strip
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(7);
-    doc.setFont('courier', 'bold');
+    doc.setFont('helvetica', 'bold');
     doc.text('HILI x BEERBIRDS', 5, 5);
 
     // Vertical dashed line
@@ -129,12 +129,12 @@ export async function generateTicketPDF(tickets: TicketData[]): Promise<Blob> {
     // "SCAN AT ENTRY" text
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(7);
-    doc.setFont('courier', 'bold');
+    doc.setFont('helvetica', 'bold');
     doc.text('SCAN AT ENTRY', 245, 96, { align: 'center' });
 
     // Ticket number below QR
     doc.setFontSize(10);
-    doc.setFont('courier', 'bold');
+    doc.setFont('helvetica', 'bold');
     doc.text(ticket.ticketNumber, 245, 101, { align: 'center' });
 
     // Bottom yellow strip
