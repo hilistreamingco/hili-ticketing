@@ -241,34 +241,46 @@ function OrderModal({
 
   const handleSend = async () => {
     if (!order) return;
-    
+
+    // Open Gmail window IMMEDIATELY while we still have user gesture context
+    // (browsers block window.open in async callbacks)
+    const eventName = order.event?.name || "Event";
+    const subject = encodeURIComponent(`Your "${eventName}" Tickets`);
+    const body = encodeURIComponent(
+      `Hey ${order.purchaser_name},\n\nThank you for trusting HILI X BEERBIRDS!\n\nYour tickets for ${eventName} are attached to this email.\n\nSee you at the event!\n\n- HILI Team`
+    );
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(order.purchaser_email)}&su=${subject}&body=${body}`;
+    const gmailWindow = window.open(gmailUrl, '_blank');
+
     setActionState("sending");
     try {
-      // Always reload the order fresh to get latest tickets
+      // Reload order to get latest tickets
       const fresh = await fetchPrestigeOrder(order.id);
       setOrder(fresh);
-      
+
       if (!fresh.tickets || fresh.tickets.length === 0) {
-        showToast("No tickets found. Please confirm payment first to generate tickets.", "error");
+        showToast("No tickets found - confirm payment first to generate tickets.", "error");
+        gmailWindow?.close();
         setActionState("idle");
         return;
       }
-      
-      // Generate PDF tickets
+
       const { generateTicketPDF } = await import("@/lib/ticketGenerator");
-      
+
       const ticketData = fresh.tickets.map((ticket: any) => ({
         ticketNumber: ticket.ticket_number,
         attendeeName: ticket.attendee_name,
         eventName: fresh.event?.name || "Event",
-        ticketType: ticket.ticket_type?.name || fresh.items?.[0]?.ticket_type?.name || fresh.items?.[0]?.ticket_type_name || "Advance",
-        eventDate: fresh.event?.event_date ? new Date(fresh.event.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase() : undefined,
+        ticketType: ticket.ticket_type?.name || fresh.items?.[0]?.ticket_type_name || "Advance",
+        eventDate: fresh.event?.event_date
+          ? new Date(fresh.event.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase()
+          : undefined,
         eventVenue: fresh.event?.venue || undefined,
         orderId: fresh.id.slice(0, 28),
       }));
 
       const pdfBlob = await generateTicketPDF(ticketData);
-      
+
       // Download PDF
       const ticketNumbers = ticketData.map((t: any) => t.ticketNumber).join('-');
       const sanitizedName = fresh.purchaser_name.replace(/[^a-zA-Z0-9]/g, '');
@@ -279,18 +291,9 @@ function OrderModal({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
 
-      // Open Gmail - must happen after user gesture (click), so open immediately
-      const eventName = fresh.event?.name || "Event";
-      const subject = encodeURIComponent(`Your "${eventName}" Tickets`);
-      const body = encodeURIComponent(
-        `Hey ${fresh.purchaser_name},\n\nThank you for trusting HILI X BEERBIRDS!\n\nYour tickets for ${eventName} are attached to this email.\n\nSee you at the event!\n\n- HILI Team`
-      );
-      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(fresh.purchaser_email)}&su=${subject}&body=${body}`;
-      window.open(gmailUrl, '_blank', 'noopener');
-
-      showToast("PDF downloaded & Gmail opened - attach PDF and send!", "success");
+      showToast("PDF downloaded & Gmail opened — attach PDF and send!", "success");
       onRefresh();
     } catch (err) {
       console.error("Send ticket error:", err);
