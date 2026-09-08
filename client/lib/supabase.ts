@@ -163,6 +163,14 @@ export async function deleteAdminTicketType(id: string): Promise<void> {
 // ── Poster upload (via server — uses service role for storage) ─────────────
 
 export async function uploadEventPoster(file: File, eventId: string): Promise<{ url: string }> {
+  // Compress image before upload if it's too large
+  let fileToUpload = file;
+  
+  // If image is larger than 1MB, compress it
+  if (file.size > 1024 * 1024) {
+    fileToUpload = await compressImage(file, 1920, 0.85); // Max width 1920px, 85% quality
+  }
+  
   // Convert to base64 and send to server; server uses service role to upload
   const base64 = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -171,15 +179,59 @@ export async function uploadEventPoster(file: File, eventId: string): Promise<{ 
       resolve(result.split(",")[1]); // strip "data:image/...;base64,"
     };
     reader.onerror = reject;
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(fileToUpload);
   });
 
   const data = await adminPost<{ url: string }>("/api/admin/upload-poster", {
     eventId,
     base64,
-    mimeType: file.type,
+    mimeType: fileToUpload.type,
   });
   return { url: data.url };
+}
+
+// Helper function to compress images
+async function compressImage(file: File, maxWidth: number, quality: number): Promise<File> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // Scale down if needed
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const compressedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              });
+              resolve(compressedFile);
+            } else {
+              resolve(file); // Fallback to original if compression fails
+            }
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // ── Attendee tickets (direct Supabase read — admins have RLS read access) ──
