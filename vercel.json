@@ -19,6 +19,12 @@
     { "source": "/api/admin/tickets", "destination": "/api/admin/tickets" },
     { "source": "/api/payment-config/:eventSlug", "destination": "/api/payment-config/[eventSlug]" },
     { "source": "/api/orders/manual", "destination": "/api/orders/manual" },
+    { "source": "/api/prestige/stats", "destination": "/api/prestige/stats" },
+    { "source": "/api/prestige/orders/confirm", "destination": "/api/prestige/orders/confirm" },
+    { "source": "/api/prestige/orders/send-ticket", "destination": "/api/prestige/orders/send-ticket" },
+    { "source": "/api/prestige/orders/not-found", "destination": "/api/prestige/orders/not-found" },
+    { "source": "/api/prestige/orders/:orderId", "destination": "/api/prestige/orders/[orderId]" },
+    { "source": "/api/prestige/orders", "destination": "/api/prestige/orders" },
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
