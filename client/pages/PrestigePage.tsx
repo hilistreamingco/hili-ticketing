@@ -243,12 +243,40 @@ function OrderModal({
     if (!order) return;
     setActionState("sending");
     try {
-      const result = await sendPrestigeTicket(order.id);
-      showToast(result.message || "Ticket sent successfully", "success");
+      // Generate PDF tickets
+      const { generateTicketPDF, openGmailWithTickets } = await import("@/lib/ticketGenerator");
+      
+      const ticketData = order.tickets?.map((ticket: any) => ({
+        ticketNumber: ticket.ticket_number,
+        attendeeName: ticket.attendee_name,
+        eventName: order.event_name || "Event",
+        ticketType: order.items?.[0]?.ticket_type_name || "General Admission",
+        eventDate: order.event?.start_date ? new Date(order.event.start_date).toLocaleDateString() : undefined,
+        eventVenue: order.event?.venue || undefined,
+      })) || [];
+
+      if (ticketData.length === 0) {
+        throw new Error("No tickets found");
+      }
+
+      const pdfBlob = await generateTicketPDF(ticketData);
+      
+      // Open Gmail with pre-filled message
+      openGmailWithTickets(
+        order.purchaser_email,
+        order.purchaser_name,
+        order.event_name || "Event",
+        pdfBlob
+      );
+
+      // Mark as sent in backend
+      await sendPrestigeTicket(order.id);
+      
+      showToast("Gmail opened with ticket PDF downloaded", "success");
       await load();
       onRefresh();
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Could not send ticket", "error");
+      showToast(err instanceof Error ? err.message : "Could not generate tickets", "error");
     } finally {
       setActionState("idle");
     }

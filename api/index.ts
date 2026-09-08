@@ -133,7 +133,7 @@ app.all('/api/prestige/orders', async (req, res) => {
       if (action === 'send') {
         const { data: order } = await supabase
           .from('orders')
-          .select('*, tickets(*), event:events(*)')
+          .select('*, tickets(*)')
           .eq('id', orderId)
           .single();
 
@@ -141,52 +141,13 @@ app.all('/api/prestige/orders', async (req, res) => {
         if (!order.tickets?.length) return res.status(400).json({ error: 'No tickets' });
         if (order.fulfillment_status === 'sent') return res.json({ success: true, message: 'Already sent' });
 
-        // Send email via Resend
-        try {
-          const ticketsList = order.tickets
-            .map((t: any) => `• ${t.attendee_name} - Ticket ${t.ticket_number}`)
-            .join('\n');
+        await supabase.from('orders').update({
+          fulfillment_status: 'sent',
+          fulfilled_at: new Date().toISOString(),
+          fulfilled_by: user.uid,
+        }).eq('id', orderId);
 
-          const emailResponse = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              from: process.env.EMAIL_FROM || 'onboarding@resend.dev',
-              to: order.purchaser_email,
-              subject: `Your ${order.event.name} Tickets`,
-              text: `Hey ${order.purchaser_name},
-
-Thank you for trusting HILI X BEERBIRDS!
-
-Your ticket(s) for ${order.event.name}:
-${ticketsList}
-
-See you at the event!
-
-- HILI Team`,
-            }),
-          });
-
-          if (!emailResponse.ok) {
-            const error = await emailResponse.text();
-            console.error('Resend error:', error);
-            return res.status(500).json({ error: 'Failed to send email' });
-          }
-
-          await supabase.from('orders').update({
-            fulfillment_status: 'sent',
-            fulfilled_at: new Date().toISOString(),
-            fulfilled_by: user.uid,
-          }).eq('id', orderId);
-
-          return res.json({ success: true, message: 'Ticket sent successfully' });
-        } catch (error: any) {
-          console.error('Email error:', error);
-          return res.status(500).json({ error: 'Failed to send email' });
-        }
+        return res.json({ success: true, message: 'Marked as sent' });
       }
 
       if (action === 'notFound') {
