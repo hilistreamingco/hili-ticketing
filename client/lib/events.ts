@@ -258,3 +258,12 @@ export function startingPrice(event: HiliEvent): string {
   if (minPrice === 0) return "Free";
   return `KES ${minPrice.toLocaleString("en-KE")}`;
 }
+
+export function formatPrice(price: number): string {
+  if (price === 0) return "Free";
+  return `KES ${price.toLocaleString("en-KE")}`;
+}
+
+export function ticketsLeft(ticketType: TicketType): number {
+  return ticketType.quantityTotal - ticketType.quantitySold;
+}
