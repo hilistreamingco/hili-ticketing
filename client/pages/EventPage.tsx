@@ -1,17 +1,163 @@
 import { ArrowLeft, ArrowRight, CalendarDays, Clock3, ExternalLink, MapPin, ShieldCheck, Ticket } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, CalendarDays, Clock3, ExternalLink, MapPin, ShieldCheck, Ticket, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import Layout from "@/components/layout/Layout";
 import PlaceholderPage from "@/components/PlaceholderPage";
-import { formatEventDate, formatEventTime, getEventBySlug, startingPrice } from "@/lib/events";
+import { formatEventDate, formatEventTime, getEventBySlug, subscribeToEvents, startingPrice, type HiliEvent } from "@/lib/events";
 
 export default function EventPage() {
   const { slug } = useParams();
-  const event = slug ? getEventBySlug(slug) : undefined;
-  if (!event) return <PlaceholderPage title="Event not found" description="This event may have ended or the link may be incorrect." />;
-  const themeVars = { "--event-primary": `hsl(${event.theme.primary})`, "--event-background": `hsl(${event.theme.background})`, "--event-foreground": `hsl(${event.theme.foreground})`, "--event-card": `hsl(${event.theme.card})`, "--event-radius": event.theme.radius } as React.CSSProperties;
-  return <Layout><div style={themeVars} className="bg-[var(--event-background)] text-[var(--event-foreground)]"><div className="container pt-6"><Link to="/" className="inline-flex items-center gap-2 text-sm font-medium opacity-65 hover:opacity-100"><ArrowLeft className="h-4 w-4" /> Back to home</Link></div><section className="container pt-5"><div className="relative overflow-hidden rounded-[var(--event-radius)]"><img src={event.coverImage} alt={event.title} className="aspect-[16/8] w-full object-cover sm:aspect-[16/6]" /><div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" /><div className="absolute bottom-6 left-6 right-6 text-white md:bottom-9 md:left-10"><span className="mb-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: "var(--event-primary)", color: "var(--event-foreground)" }}>{event.category}</span><h1 className="font-display text-4xl font-bold tracking-tight md:text-6xl">{event.title}</h1></div></div></section><div className="container grid gap-12 py-12 lg:grid-cols-[1fr_360px] lg:gap-20"><div><div className="grid gap-5 rounded-[var(--event-radius)] p-5 sm:grid-cols-3" style={{ backgroundColor: "var(--event-card)" }}><Info icon={CalendarDays} label="Date" value={formatEventDate(event.date)} /><Info icon={Clock3} label="Time" value={`${formatEventTime(event.startTime)} – ${formatEventTime(event.endTime)}`} /><Info icon={MapPin} label="Location" value={`${event.venue}, ${event.city}`} /></div><div className="mt-10"><p className="text-lg leading-8 opacity-75">{event.description}</p><div className="mt-8 flex flex-wrap gap-2">{event.policies.map((policy) => <span key={policy} className="rounded-full border border-current/15 px-3 py-1.5 text-xs font-medium opacity-70">{policy}</span>)}</div></div><div className="mt-12"><h2 className="font-display text-2xl font-bold">Getting there</h2><p className="mt-2 text-sm opacity-65">{event.venue} · {event.address}</p><div className="mt-5 overflow-hidden rounded-2xl border border-current/10"><iframe title={`${event.venue} map`} src={`https://www.google.com/maps?q=${encodeURIComponent(`${event.venue}, ${event.address}`)}&output=embed`} className="h-64 w-full border-0" loading="lazy" /></div><a href={event.mapUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold hover:underline">Open in Google Maps <ExternalLink className="h-4 w-4" /></a></div><div className="mt-12 flex items-center gap-3"><img src={event.organizer.avatar} alt="" className="h-10 w-10 rounded-full object-cover" /><div><p className="text-xs opacity-55">Organised by</p><p className="text-sm font-semibold">{event.organizer.name}</p></div></div></div><aside className="lg:pt-16"><div className="sticky top-24 rounded-[var(--event-radius)] p-6 shadow-xl" style={{ backgroundColor: "var(--event-card)" }}><div className="flex items-center gap-3"><Ticket className="h-5 w-5" style={{ color: "var(--event-primary)" }} /><div><p className="text-xs opacity-55">Tickets from</p><p className="font-display text-2xl font-bold">{startingPrice(event)}</p></div></div><Separator className="my-6 opacity-15" /><Button asChild className="h-12 w-full" style={{ backgroundColor: "var(--event-primary)", color: "var(--event-foreground)" }}><Link to={`/tickets/${event.slug}`}>Choose tickets <ArrowRight className="ml-2 h-4 w-4" /></Link></Button><div className="mt-5 flex items-start gap-2 text-xs opacity-55"><ShieldCheck className="h-4 w-4 shrink-0" />Secure checkout with M-Pesa</div></div></aside></div></div></Layout>;
+  const [event, setEvent] = useState<HiliEvent | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!slug) return;
+    let active = true;
+    const load = async () => {
+      const ev = await getEventBySlug(slug);
+      if (active) {
+        setEvent(ev);
+        setLoading(false);
+      }
+    };
+    void load();
+    const unsub = subscribeToEvents(() => void load());
+    return () => { active = false; unsub(); };
+  }, [slug]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-black/30" />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!event) {
+    return <PlaceholderPage title="Event not found" description="This event may have ended or the link may be incorrect." />;
+  }
+
+  const themeVars = {
+    "--event-primary": event.theme.primary,
+    "--event-background": event.theme.background,
+    "--event-foreground": event.theme.foreground,
+    "--event-card": event.theme.card,
+    "--event-radius": event.theme.radius,
+  } as React.CSSProperties;
+
+  return (
+    <Layout>
+      <div style={themeVars} className="bg-[var(--event-background)] text-[var(--event-foreground)]">
+        <div className="container pt-6">
+          <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium opacity-65 hover:opacity-100">
+            <ArrowLeft className="h-4 w-4" /> Back to home
+          </Link>
+        </div>
+        <section className="container pt-5">
+          <div className="relative overflow-hidden rounded-[var(--event-radius)]">
+            <img src={event.coverImage} alt={event.title} className="aspect-[16/8] w-full object-cover sm:aspect-[16/6]" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+            <div className="absolute bottom-6 left-6 right-6 text-white md:bottom-9 md:left-10">
+              <span
+                className="mb-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                style={{ backgroundColor: "var(--event-primary)", color: "var(--event-foreground)" }}
+              >
+                {event.category}
+              </span>
+              <h1 className="font-display text-4xl font-bold tracking-tight md:text-6xl">{event.title}</h1>
+            </div>
+          </div>
+        </section>
+        <div className="container grid gap-12 py-12 lg:grid-cols-[1fr_360px] lg:gap-20">
+          <div>
+            <div className="grid gap-5 rounded-[var(--event-radius)] p-5 sm:grid-cols-3" style={{ backgroundColor: "var(--event-card)" }}>
+              {event.date && <Info icon={CalendarDays} label="Date" value={formatEventDate(event.date)} />}
+              {event.startTime && event.endTime && (
+                <Info icon={Clock3} label="Time" value={`${formatEventTime(event.startTime)} – ${formatEventTime(event.endTime)}`} />
+              )}
+              {event.venue && <Info icon={MapPin} label="Location" value={`${event.venue}, ${event.city}`} />}
+            </div>
+            <div className="mt-10">
+              <p className="text-lg leading-8 opacity-75">{event.description}</p>
+              <div className="mt-8 flex flex-wrap gap-2">
+                {event.policies.map((policy) => (
+                  <span key={policy} className="rounded-full border border-current/15 px-3 py-1.5 text-xs font-medium opacity-70">
+                    {policy}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {event.venue && event.address && (
+              <div className="mt-12">
+                <h2 className="font-display text-2xl font-bold">Getting there</h2>
+                <p className="mt-2 text-sm opacity-65">
+                  {event.venue} · {event.address}
+                </p>
+                <div className="mt-5 overflow-hidden rounded-2xl border border-current/10">
+                  <iframe
+                    title={`${event.venue} map`}
+                    src={`https://www.google.com/maps?q=${encodeURIComponent(`${event.venue}, ${event.address}`)}&output=embed`}
+                    className="h-64 w-full border-0"
+                    loading="lazy"
+                  />
+                </div>
+                {event.mapUrl && (
+                  <a href={event.mapUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold hover:underline">
+                    Open in Google Maps <ExternalLink className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+            )}
+            <div className="mt-12 flex items-center gap-3">
+              <img src={event.organizer.avatar} alt="" className="h-10 w-10 rounded-full object-cover" />
+              <div>
+                <p className="text-xs opacity-55">Organised by</p>
+                <p className="text-sm font-semibold">{event.organizer.name}</p>
+              </div>
+            </div>
+          </div>
+          <aside className="lg:pt-16">
+            <div className="sticky top-24 rounded-[var(--event-radius)] p-6 shadow-xl" style={{ backgroundColor: "var(--event-card)" }}>
+              <div className="flex items-center gap-3">
+                <Ticket className="h-5 w-5" style={{ color: "var(--event-primary)" }} />
+                <div>
+                  <p className="text-xs opacity-55">Tickets from</p>
+                  <p className="font-display text-2xl font-bold">{startingPrice(event)}</p>
+                </div>
+              </div>
+              <Separator className="my-6 opacity-15" />
+              <Button asChild className="h-12 w-full" style={{ backgroundColor: "var(--event-primary)", color: "var(--event-foreground)" }}>
+                <Link to={`/tickets/${event.slug}`}>
+                  Choose tickets <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+              <div className="mt-5 flex items-start gap-2 text-xs opacity-55">
+                <ShieldCheck className="h-4 w-4 shrink-0" />
+                Secure checkout with M-Pesa
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </Layout>
+  );
 }
 
-function Info({ icon: Icon, label, value }: { icon: typeof CalendarDays; label: string; value: string }) { return <div className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--event-primary)]/10 text-[var(--event-primary)]"><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className="text-xs opacity-55">{label}</p><p className="truncate text-sm font-semibold">{value}</p></div></div>; }
+function Info({ icon: Icon, label, value }: { icon: typeof CalendarDays; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--event-primary)]/10 text-[var(--event-primary)]">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs opacity-55">{label}</p>
+        <p className="truncate text-sm font-semibold">{value}</p>
+      </div>
+    </div>
+  );
+}
