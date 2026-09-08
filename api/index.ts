@@ -97,46 +97,82 @@ app.all('/api/prestige/orders', async (req, res) => {
       }
 
       if (action === 'confirm') {
-        const { data: order } = await supabase
+        const { data: order, error: orderError } = await supabase
           .from('orders')
           .select('*, order_items(*, ticket_type:ticket_types(*)), event:events(*)')
           .eq('id', orderId)
           .single();
 
-        if (!order) return res.status(404).json({ error: 'Order not found' });
+        if (orderError || !order) return res.status(404).json({ error: 'Order not found', detail: orderError?.message });
         if (order.status === 'confirmed' || order.status === 'paid') {
           return res.json({ success: true, message: 'Already confirmed' });
         }
 
-        const { data: seqData } = await supabase
-          .from('ticket_number_seq')
-          .select('last_number')
-          .eq('event_id', order.event_id)
-          .single();
+        // Get current ticket sequence - handle missing table gracefully
+        let nextNumber = 1;
+        try {
+          const { data: seqData } = await supabase
+            .from('ticket_number_seq')
+            .select('last_number')
+            .eq('event_id', order.event_id)
+            .maybeSingle();
+          if (seqData?.last_number) nextNumber = seqData.last_number + 1;
+        } catch {
+          // If seq table doesn't exist, count existing tickets instead
+          const { count } = await supabase
+            .from('tickets')
+            .select('id', { count: 'exact', head: true })
+            .eq('event_id', order.event_id);
+          nextNumber = (count || 0) + 1;
+        }
 
-        let nextNumber = (seqData?.last_number || 0) + 1;
         const tickets = [];
-        
-        for (const item of order.order_items) {
-          const attendeeNames = item.attendee_names || [order.purchaser_name];
-          for (const name of attendeeNames) {
-            tickets.push({
-              order_id: order.id,
-              ticket_type_id: item.ticket_type_id,
-              attendee_name: name,
-              ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
-              event_id: order.event_id,
-            });
+        const items = order.order_items || [];
+
+        // If no order_items, create one ticket for the purchaser
+        if (items.length === 0) {
+          tickets.push({
+            order_id: order.id,
+            ticket_type_id: null,
+            attendee_name: order.purchaser_name,
+            ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
+            event_id: order.event_id,
+          });
+        } else {
+          for (const item of items) {
+            const qty = item.quantity || 1;
+            const attendeeNames = (item.attendee_names && item.attendee_names.length >= qty)
+              ? item.attendee_names
+              : Array(qty).fill(order.purchaser_name);
+            for (const name of attendeeNames) {
+              tickets.push({
+                order_id: order.id,
+                ticket_type_id: item.ticket_type_id || null,
+                attendee_name: name,
+                ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
+                event_id: order.event_id,
+              });
+            }
           }
         }
 
-        await supabase.from('tickets').insert(tickets);
-        await supabase.from('ticket_number_seq').upsert({ event_id: order.event_id, last_number: nextNumber - 1 });
-        await supabase.from('orders').update({
-          status: 'confirmed',
-        }).eq('id', orderId);
+        const { error: ticketError } = await supabase.from('tickets').insert(tickets);
+        if (ticketError) {
+          console.error('Ticket insert error:', ticketError);
+          return res.status(500).json({ error: 'Failed to create tickets', detail: ticketError.message });
+        }
 
-        return res.json({ success: true, message: 'Payment confirmed' });
+        // Update sequence
+        try {
+          await supabase.from('ticket_number_seq').upsert({
+            event_id: order.event_id,
+            last_number: nextNumber - 1
+          });
+        } catch { /* ignore if table doesn't exist */ }
+
+        await supabase.from('orders').update({ status: 'confirmed' }).eq('id', orderId);
+
+        return res.json({ success: true, message: `Payment confirmed. ${tickets.length} ticket(s) generated.`, tickets });
       }
 
       if (action === 'send') {
