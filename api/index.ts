@@ -115,23 +115,11 @@ app.all('/api/prestige/orders', async (req, res) => {
           // Fall through to generate tickets for already-confirmed order
         }
 
-        // Get current ticket sequence - handle missing table gracefully
-        let nextNumber = 1;
-        try {
-          const { data: seqData } = await supabase
-            .from('ticket_number_seq')
-            .select('last_number')
-            .eq('event_id', order.event_id)
-            .maybeSingle();
-          if (seqData?.last_number) nextNumber = seqData.last_number + 1;
-        } catch {
-          // If seq table doesn't exist, count existing tickets instead
-          const { count } = await supabase
-            .from('tickets')
-            .select('id', { count: 'exact', head: true })
-            .eq('event_id', order.event_id);
-          nextNumber = (count || 0) + 1;
-        }
+        // Always count existing tickets to determine next number (avoids duplicates)
+        const { count: existingCount } = await supabase
+          .from('tickets')
+          .select('id', { count: 'exact', head: true });
+        let nextNumber = (existingCount || 0) + 1;
 
         const tickets = [];
         const items = order.order_items || [];
