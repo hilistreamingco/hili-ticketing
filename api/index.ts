@@ -97,89 +97,16 @@ app.all('/api/prestige/orders', async (req, res) => {
       }
 
       if (action === 'confirm' || action === 'generateTickets') {
-        const { data: order, error: orderError } = await supabase
-          .from('orders')
-          .select('*, order_items(*, ticket_type:ticket_types(*)), event:events(*)')
-          .eq('id', orderId)
-          .single();
+        // Use the DB function which handles ticket generation atomically with correct attendee_index
+        const { data: result, error: confirmError } = await supabase
+          .rpc('confirm_manual_payment', { target_order_id: orderId, actor_id: user.uid });
 
-        if (orderError || !order) return res.status(404).json({ error: 'Order not found', detail: orderError?.message });
-        
-        // For confirm action, check if already confirmed
-        if (action === 'confirm' && (order.status === 'confirmed' || order.status === 'paid')) {
-          // Check if tickets exist - if not, still generate them
-          const { count } = await supabase.from('tickets').select('id', { count: 'exact', head: true }).eq('order_id', orderId);
-          if (count && count > 0) {
-            return res.json({ success: true, message: 'Already confirmed' });
-          }
-          // Fall through to generate tickets for already-confirmed order
+        if (confirmError) {
+          console.error('confirm_manual_payment error:', confirmError);
+          return res.status(500).json({ error: 'Failed to confirm payment', detail: confirmError.message });
         }
 
-        // Get highest existing ticket number to avoid race conditions
-        // Sort by length first then alphabetically to handle SBTB001, SBTB002...SBTB999
-        const { data: allTickets } = await supabase
-          .from('tickets')
-          .select('ticket_number');
-        
-        let nextNumber = 1;
-        if (allTickets && allTickets.length > 0) {
-          const maxNum = allTickets.reduce((max: number, t: any) => {
-            const match = t.ticket_number?.match(/(\d+)$/);
-            const num = match ? parseInt(match[1]) : 0;
-            return Math.max(max, num);
-          }, 0);
-          nextNumber = maxNum + 1;
-        }
-
-        const tickets = [];
-        const items = order.order_items || [];
-
-        // Get a valid ticket_type_id - use from order_items or look up from event
-        const defaultTicketTypeId = items[0]?.ticket_type_id || null;
-
-        if (items.length === 0) {
-          tickets.push({
-            order_id: order.id,
-            ticket_type_id: defaultTicketTypeId,
-            attendee_name: order.purchaser_name,
-            ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
-            event_id: order.event_id,
-          });
-        } else {
-          for (const item of items) {
-            const qty = item.quantity || 1;
-            const attendeeNames = (item.attendee_names && item.attendee_names.length >= qty)
-              ? item.attendee_names
-              : Array(qty).fill(null).map((_: any, i: number) => item.attendee_names?.[i] || order.purchaser_name);
-            for (const name of attendeeNames) {
-              tickets.push({
-                order_id: order.id,
-                ticket_type_id: item.ticket_type_id || defaultTicketTypeId,
-                attendee_name: name,
-                ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
-                event_id: order.event_id,
-              });
-            }
-          }
-        }
-
-        const { error: ticketError } = await supabase.from('tickets').insert(tickets);
-        if (ticketError) {
-          console.error('Ticket insert error:', ticketError);
-          return res.status(500).json({ error: 'Failed to create tickets', detail: ticketError.message });
-        }
-
-        // Update sequence
-        try {
-          await supabase.from('ticket_number_seq').upsert({
-            event_id: order.event_id,
-            last_number: nextNumber - 1
-          });
-        } catch { /* ignore if table doesn't exist */ }
-
-        await supabase.from('orders').update({ status: 'confirmed' }).eq('id', orderId);
-
-        return res.json({ success: true, message: `Payment confirmed. ${tickets.length} ticket(s) generated.`, tickets });
+        return res.json({ success: true, message: 'Payment confirmed and tickets generated.', result });
       }
 
       if (action === 'send') {
