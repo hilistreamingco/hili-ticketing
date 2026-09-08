@@ -17,6 +17,8 @@
     { "source": "/api/admin/events", "destination": "/api/admin/events" },
     { "source": "/api/admin/tickets/:id", "destination": "/api/admin/tickets/[id]" },
     { "source": "/api/admin/tickets", "destination": "/api/admin/tickets" },
+    { "source": "/api/payment-config/:eventSlug", "destination": "/api/payment-config/[eventSlug]" },
+    { "source": "/api/orders/manual", "destination": "/api/orders/manual" },
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
