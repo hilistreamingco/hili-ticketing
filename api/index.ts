@@ -90,6 +90,10 @@ app.all('/api/prestige/orders', async (req, res) => {
     if (req.method === 'POST') {
       const { action, orderId, note } = req.body;
 
+      if (!action || !orderId) {
+        return res.status(400).json({ error: 'Missing action or orderId' });
+      }
+
       if (action === 'confirm') {
         const { data: order } = await supabase
           .from('orders')
