@@ -1,7 +1,6 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, CalendarDays, MapPin, Loader2 } from "lucide-react";
-import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { getEvents, subscribeToEvents, formatEventDate, type HiliEvent } from "@/lib/events";

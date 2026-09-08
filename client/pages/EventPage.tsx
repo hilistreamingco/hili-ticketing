@@ -1,6 +1,5 @@
-import { ArrowLeft, ArrowRight, CalendarDays, Clock3, ExternalLink, MapPin, ShieldCheck, Ticket } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, CalendarDays, Clock3, ExternalLink, MapPin, ShieldCheck, Ticket, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
