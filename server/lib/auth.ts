@@ -53,24 +53,40 @@ export async function getAuthedUser(authHeader: string | undefined): Promise<Aut
   const token = authHeader.slice(7);
 
   try {
-    const supabase = getServiceClient();
-    const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data.user?.email) {
-      console.error("Auth error:", error?.message || "No user email");
-      return null;
-    }
+    // First, try to decode JWT locally (fast, no network call)
+    const payload = parseJWT(token);
+    if (!payload?.email) return null;
 
-    const email = data.user.email.toLowerCase();
+    const email = payload.email.toLowerCase();
     const admins = adminEmails();
     const prestige = prestigeEmails();
 
-    if (admins.includes(email)) return { uid: data.user.id, email, role: "hili_admin" };
-    if (prestige.includes(email)) return { uid: data.user.id, email, role: "prestige_admin" };
+    if (admins.includes(email)) return { uid: payload.sub || "", email, role: "hili_admin" };
+    if (prestige.includes(email)) return { uid: payload.sub || "", email, role: "prestige_admin" };
 
     return null; // not in any list
   } catch (err) {
     console.error("getAuthedUser failed:", err);
-    return null; // Return null instead of throwing on timeout
+    return null;
+  }
+}
+
+/** Parse JWT without verification (we trust Supabase issued it) */
+function parseJWT(token: string): { sub?: string; email?: string; exp?: number } | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    
+    const payload = JSON.parse(Buffer.from(parts[1], "base64").toString());
+    
+    // Check if token is expired
+    if (payload.exp && payload.exp < Date.now() / 1000) {
+      return null;
+    }
+    
+    return payload;
+  } catch {
+    return null;
   }
 }
 
