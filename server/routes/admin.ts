@@ -34,7 +34,10 @@ export const handleGetEvents: RequestHandler = async (req, res) => {
 
 // ── POST /api/admin/events ─────────────────────────────────────────────────
 export const handleCreateEvent: RequestHandler = async (req, res) => {
+  const startTime = Date.now();
   const user = await getAuthedUser(req.headers.authorization);
+  console.log(`[CREATE EVENT] Auth check: ${Date.now() - startTime}ms`);
+  
   if (!requireHiliAdmin(user)) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const body = req.body as Record<string, unknown>;
@@ -52,14 +55,17 @@ export const handleCreateEvent: RequestHandler = async (req, res) => {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "") || "event";
 
+    const slugCheckStart = Date.now();
     const { data: existing } = await supabase
       .from("events")
       .select("id")
       .eq("slug", base)
       .maybeSingle();
+    console.log(`[CREATE EVENT] Slug check: ${Date.now() - slugCheckStart}ms`);
 
     const slug = existing ? `${base}-${Date.now()}` : base;
 
+    const insertStart = Date.now();
     // No organization needed — organization_id is nullable after migration 005
     const { data, error } = await supabase
       .from("events")
@@ -84,8 +90,10 @@ export const handleCreateEvent: RequestHandler = async (req, res) => {
       } as any)
       .select()
       .single();
+    console.log(`[CREATE EVENT] Insert: ${Date.now() - insertStart}ms`);
 
     if (error) throw error;
+    console.log(`[CREATE EVENT] Total: ${Date.now() - startTime}ms`);
     res.status(201).json({ event: data });
   } catch (err) {
     console.error("Create event error", err);
