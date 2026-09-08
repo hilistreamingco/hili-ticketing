@@ -241,12 +241,19 @@ function OrderModal({
 
   const handleSend = async () => {
     if (!order) return;
+    
+    // Check if order has tickets
+    if (!order.tickets || order.tickets.length === 0) {
+      showToast("No tickets found. Please confirm payment first to generate tickets.", "error");
+      return;
+    }
+    
     setActionState("sending");
     try {
       // Generate PDF tickets
       const { generateTicketPDF, openGmailWithTickets } = await import("@/lib/ticketGenerator");
       
-      const ticketData = order.tickets?.map((ticket: any) => ({
+      const ticketData = order.tickets.map((ticket: any) => ({
         ticketNumber: ticket.ticket_number,
         attendeeName: ticket.attendee_name,
         eventName: order.event?.name || "Event",
@@ -254,11 +261,7 @@ function OrderModal({
         eventDate: order.event?.event_date ? new Date(order.event.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase() : undefined,
         eventVenue: order.event?.venue || undefined,
         orderId: order.id.slice(0, 28), // Shortened order ID
-      })) || [];
-
-      if (ticketData.length === 0) {
-        throw new Error("No tickets found");
-      }
+      }));
 
       const pdfBlob = await generateTicketPDF(ticketData);
       
