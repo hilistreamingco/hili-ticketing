@@ -251,8 +251,9 @@ function OrderModal({
         attendeeName: ticket.attendee_name,
         eventName: order.event_name || "Event",
         ticketType: order.items?.[0]?.ticket_type_name || "General Admission",
-        eventDate: order.event?.start_date ? new Date(order.event.start_date).toLocaleDateString() : undefined,
+        eventDate: order.event?.start_date ? new Date(order.event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase() : undefined,
         eventVenue: order.event?.venue || undefined,
+        orderId: order.id.slice(0, 28), // Shortened order ID
       })) || [];
 
       if (ticketData.length === 0) {
@@ -266,7 +267,8 @@ function OrderModal({
         order.purchaser_email,
         order.purchaser_name,
         order.event_name || "Event",
-        pdfBlob
+        pdfBlob,
+        ticketData
       );
 
       // Mark as sent in backend

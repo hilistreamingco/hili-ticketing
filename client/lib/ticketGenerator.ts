@@ -8,13 +8,14 @@ export interface TicketData {
   ticketType: string;
   eventDate?: string;
   eventVenue?: string;
+  orderId?: string;
 }
 
 export async function generateTicketPDF(tickets: TicketData[]): Promise<Blob> {
   const doc = new jsPDF({
-    orientation: 'portrait',
+    orientation: 'landscape',
     unit: 'mm',
-    format: 'a4',
+    format: [297, 105], // Ticket-like dimensions
   });
 
   for (let i = 0; i < tickets.length; i++) {
@@ -22,74 +23,123 @@ export async function generateTicketPDF(tickets: TicketData[]): Promise<Blob> {
 
     const ticket = tickets[i];
 
-    // Background
-    doc.setFillColor(17, 17, 17); // #111
-    doc.rect(0, 0, 210, 297, 'F');
+    // Background - Black
+    doc.setFillColor(0, 0, 0);
+    doc.rect(0, 0, 297, 105, 'F');
 
-    // Title bar
-    doc.setFillColor(193, 255, 26); // #c1ff1a
-    doc.rect(0, 0, 210, 20, 'F');
+    // Top yellow strip
+    doc.setFillColor(238, 236, 45); // #EEE22D (yellow)
+    doc.rect(0, 0, 297, 8, 'F');
+
+    // Small HILI x BEERBIRDS text on yellow strip
     doc.setTextColor(0, 0, 0);
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.text('HILI TICKET', 105, 13, { align: 'center' });
+    doc.setFontSize(7);
+    doc.setFont('courier', 'bold');
+    doc.text('HILI x BEERBIRDS', 5, 5);
 
-    // Event name
-    doc.setTextColor(193, 255, 26);
-    doc.setFontSize(24);
-    doc.text(ticket.eventName, 105, 40, { align: 'center' });
+    // Vertical dashed line
+    doc.setLineDash([2, 2]);
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(0.5);
+    doc.line(195, 0, 195, 105);
+    doc.setLineDash([]);
 
-    // Ticket number (prominent)
+    // === LEFT SECTION ===
+    
+    // Event name - Large white text
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(32);
-    doc.setFont('courier', 'bold');
-    doc.text(ticket.ticketNumber, 105, 60, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    const eventLines = doc.splitTextToSize(ticket.eventName.toUpperCase(), 180);
+    doc.text(eventLines, 10, 25);
 
-    // Attendee name
+    // Event subtitle (if multiple lines, place below)
+    const subtitleY = eventLines.length > 1 ? 45 : 38;
     doc.setFontSize(16);
-    doc.setFont('helvetica', 'normal');
-    doc.text(ticket.attendeeName, 105, 75, { align: 'center' });
+    doc.text('FINAL WATCH PARTY', 10, subtitleY);
 
-    // Ticket type
-    doc.setTextColor(193, 255, 26);
-    doc.setFontSize(14);
-    doc.text(ticket.ticketType, 105, 85, { align: 'center' });
+    // Date section
+    doc.setTextColor(238, 236, 45);
+    doc.setFontSize(8);
+    doc.text('DATE', 10, subtitleY + 14);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(ticket.eventDate || '19 JULY 2026', 10, subtitleY + 20);
 
-    // QR Code (fake for now)
+    // Venue section
+    doc.setTextColor(238, 236, 45);
+    doc.setFontSize(8);
+    doc.text('VENUE', 70, subtitleY + 14);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(ticket.eventVenue?.toUpperCase() || 'BEERBIRDS, PRESTIGE', 70, subtitleY + 20);
+
+    // Tier section
+    doc.setTextColor(238, 236, 45);
+    doc.setFontSize(8);
+    doc.text('TIER', 10, subtitleY + 30);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(ticket.ticketType.toUpperCase(), 10, subtitleY + 36);
+
+    // Attendee section
+    doc.setTextColor(238, 236, 45);
+    doc.setFontSize(8);
+    doc.text('ATTENDEE', 70, subtitleY + 30);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(ticket.attendeeName.toUpperCase(), 70, subtitleY + 36);
+
+    // Bottom note
+    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(7);
+    doc.text('ADMIT ONE • REDEEMABLE AT BEERBIRDS, PRESTIGE', 10, 95);
+
+    // ID at bottom
+    if (ticket.orderId) {
+      doc.setFontSize(6);
+      doc.setTextColor(80, 80, 80);
+      doc.text(`ID ${ticket.orderId}`, 10, 101);
+    }
+
+    // === RIGHT SECTION - QR CODE ===
+    
+    // QR Code with yellow background
+    doc.setFillColor(238, 236, 45);
+    doc.rect(205, 18, 80, 80, 'F');
+
     try {
       const qrDataUrl = await QRCode.toDataURL(ticket.ticketNumber, {
-        width: 200,
-        margin: 2,
+        width: 300,
+        margin: 1,
         color: {
-          dark: '#c1ff1a',
-          light: '#111111',
+          dark: '#000000',
+          light: '#EEE22D',
         },
       });
-      doc.addImage(qrDataUrl, 'PNG', 55, 100, 100, 100);
+      doc.addImage(qrDataUrl, 'PNG', 210, 23, 70, 70);
     } catch (err) {
       console.error('QR generation error:', err);
     }
 
-    // Footer
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(10);
-    doc.text('Present this ticket at the entrance', 105, 220, { align: 'center' });
-    doc.setTextColor(150, 150, 150);
-    doc.text('Powered by HILI', 105, 230, { align: 'center' });
+    // "SCAN AT ENTRY" text
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(7);
+    doc.setFont('courier', 'bold');
+    doc.text('SCAN AT ENTRY', 245, 96, { align: 'center' });
 
-    // Event details (if available)
-    if (ticket.eventDate || ticket.eventVenue) {
-      doc.setFontSize(10);
-      doc.setTextColor(200, 200, 200);
-      let yPos = 245;
-      if (ticket.eventDate) {
-        doc.text(`Date: ${ticket.eventDate}`, 105, yPos, { align: 'center' });
-        yPos += 6;
-      }
-      if (ticket.eventVenue) {
-        doc.text(`Venue: ${ticket.eventVenue}`, 105, yPos, { align: 'center' });
-      }
-    }
+    // Ticket number below QR
+    doc.setFontSize(10);
+    doc.setFont('courier', 'bold');
+    doc.text(ticket.ticketNumber, 245, 101, { align: 'center' });
+
+    // Bottom yellow strip
+    doc.setFillColor(238, 236, 45);
+    doc.rect(0, 97, 297, 8, 'F');
   }
 
   return doc.output('blob');
@@ -99,18 +149,24 @@ export function openGmailWithTickets(
   recipientEmail: string,
   recipientName: string,
   eventName: string,
-  ticketBlob: Blob
+  ticketBlob: Blob,
+  tickets: TicketData[]
 ) {
+  // Create filename: "PersonName-SBTB001.pdf" or "PersonName-SBTB001-SBTB002.pdf"
+  const ticketNumbers = tickets.map(t => t.ticketNumber).join('-');
+  const sanitizedName = recipientName.replace(/[^a-zA-Z0-9]/g, '');
+  const filename = `${sanitizedName}-${ticketNumbers}.pdf`;
+  
   // Create a download link for the ticket PDF
   const url = URL.createObjectURL(ticketBlob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `tickets-${eventName.replace(/\s+/g, '-')}.pdf`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 
   // Gmail compose URL with pre-filled message
-  const subject = encodeURIComponent(`Your ${eventName} Tickets`);
+  const subject = encodeURIComponent(`Your "${eventName}" Tickets`);
   const body = encodeURIComponent(
     `Hey ${recipientName},\n\nThank you for trusting HILI X BEERBIRDS!\n\nYour tickets for ${eventName} are attached to this email.\n\nSee you at the event!\n\n- HILI Team`
   );
