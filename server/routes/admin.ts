@@ -69,7 +69,6 @@ export const handleCreateEvent: RequestHandler = async (req, res) => {
 
     const { data, error } = await supabase
       .from("events")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .insert({
         organization_id: org?.id ?? null,
         slug,
@@ -88,7 +87,7 @@ export const handleCreateEvent: RequestHandler = async (req, res) => {
         is_current: Boolean(body.is_current),
         theme: (body.theme as object) ?? {},
         settings: (body.settings as object) ?? {},
-      })
+      } as any)
       .select()
       .single();
 
@@ -113,7 +112,6 @@ export const handleUpdateEvent: RequestHandler = async (req, res) => {
 
     // Clear is_current on all others before setting this one
     if (body.is_current === true) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await supabase.from("events").update({ is_current: false } as any).neq("id", id);
     }
 
@@ -126,7 +124,6 @@ export const handleUpdateEvent: RequestHandler = async (req, res) => {
       if (f in body) patch[f] = body[f] ?? null;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await supabase
       .from("events")
       .update(patch as any)
@@ -171,7 +168,6 @@ export const handleCreateTicketType: RequestHandler = async (req, res) => {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await getServiceClient()
       .from("ticket_types")
       .insert({
@@ -187,7 +183,7 @@ export const handleCreateTicketType: RequestHandler = async (req, res) => {
         is_visible: body.is_visible !== false,
         is_active: body.is_active !== false,
         sort_order: Number(body.sort_order) || 0,
-      })
+      } as any)
       .select()
       .single();
     if (error) throw error;
@@ -205,7 +201,6 @@ export const handleUpdateTicketType: RequestHandler = async (req, res) => {
 
   const body = req.body as Record<string, unknown>;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await getServiceClient()
       .from("ticket_types")
       .update({
@@ -220,7 +215,7 @@ export const handleUpdateTicketType: RequestHandler = async (req, res) => {
         is_visible: body.is_visible !== false,
         is_active: body.is_active !== false,
         sort_order: Number(body.sort_order) || 0,
-      })
+      } as any)
       .eq("id", req.params.id)
       .select()
       .single();

@@ -229,3 +229,32 @@ export function subscribeToEvents(callback: () => void) {
 
 // Export empty array for backwards compatibility — use getEvents() instead
 export const events: HiliEvent[] = [];
+
+
+// ── Helper functions ───────────────────────────────────────────────────────────
+export function formatEventDate(dateStr: string): string {
+  if (!dateStr) return "Date TBA";
+  const date = new Date(dateStr);
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export function formatEventTime(timeStr: string): string {
+  if (!timeStr) return "";
+  const [hours, minutes] = timeStr.split(":");
+  const hour = parseInt(hours, 10);
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+  return `${hour12}:${minutes} ${ampm}`;
+}
+
+export function startingPrice(event: HiliEvent): string {
+  if (!event.ticketTypes || event.ticketTypes.length === 0) return "Free";
+  const minPrice = Math.min(...event.ticketTypes.map((t) => t.price));
+  if (minPrice === 0) return "Free";
+  return `KES ${minPrice.toLocaleString("en-KE")}`;
+}
