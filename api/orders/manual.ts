@@ -111,6 +111,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.error('Order items error:', itemsError);
     }
 
+    // Send notification email to ops team
+    const resendKey = process.env.RESEND_API_KEY;
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+    const opsEmail = process.env.OPS_NOTIFICATION_EMAIL || process.env.CONTACT_TO_EMAIL;
+
+    if (resendKey && opsEmail) {
+      try {
+        const Resend = (await import('resend')).Resend;
+        const resend = new Resend(resendKey);
+        
+        const prestigeDashboardUrl = 'https://hili-ticketing.vercel.app/admin/prestige';
+        
+        await resend.emails.send({
+          from: fromEmail,
+          to: opsEmail,
+          subject: `🎟️ New Order: ${order.order_number} - KES ${amountKes}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2 style="color: #333;">New Ticket Order Received</h2>
+              <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <p><strong>Order Number:</strong> ${order.order_number}</p>
+                <p><strong>Customer:</strong> ${purchaserName}</p>
+                <p><strong>Email:</strong> ${purchaserEmail}</p>
+                <p><strong>Phone:</strong> ${purchaserPhone}</p>
+                <p><strong>Event:</strong> ${event.name}</p>
+                <p><strong>Ticket Type:</strong> ${ticketType.name}</p>
+                <p><strong>Quantity:</strong> ${attendeeNames.length}</p>
+                <p><strong>Amount:</strong> KES ${amountKes.toLocaleString()}</p>
+                ${mpesaName ? `<p><strong>M-Pesa Name:</strong> ${mpesaName}</p>` : ''}
+                ${mpesaTransactionCode ? `<p><strong>Transaction Code:</strong> ${mpesaTransactionCode}</p>` : ''}
+              </div>
+              <div style="margin: 30px 0;">
+                <a href="${prestigeDashboardUrl}" style="display: inline-block; background: #c1ff1a; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                  View in Prestige Dashboard →
+                </a>
+              </div>
+              <p style="color: #666; font-size: 12px; margin-top: 30px;">
+                Log in to the Prestige Dashboard to verify the payment and send tickets.
+              </p>
+            </div>
+          `,
+        });
+      } catch (emailError) {
+        console.error('Failed to send ops notification:', emailError);
+        // Don't fail the request if email fails
+      }
+    }
+
     return res.status(201).json({ 
       success: true,
       orderNumber: order.order_number,

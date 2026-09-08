@@ -115,6 +115,28 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     { label: "Payment config", icon: Settings2 },
   ];
 
+  // Auto-logout after 30 minutes of inactivity
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    
+    const resetTimeout = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        alert('Session expired due to inactivity');
+        onLogout();
+      }, 30 * 60 * 1000); // 30 minutes
+    };
+
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach(event => window.addEventListener(event, resetTimeout));
+    resetTimeout();
+
+    return () => {
+      clearTimeout(timeout);
+      events.forEach(event => window.removeEventListener(event, resetTimeout));
+    };
+  }, [onLogout]);
+
   return (
     <div className="min-h-screen bg-[#f4f4ef] text-[#0b0b0b]">
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col bg-[#0b0b0b] p-6 text-white lg:flex">

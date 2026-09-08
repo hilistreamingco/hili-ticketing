@@ -213,13 +213,41 @@ export default function CheckoutPage() {
   // Load payment config for this event
   useEffect(() => {
     if (!event?.slug) return;
+    console.log('Loading payment config for:', event.slug);
     fetch(`/api/payment-config/${event.slug}`)
       .then((r) => r.json())
       .then((data: { config: PaymentConfig | null }) => {
+        console.log('Payment config loaded:', data.config);
         if (data.config) setPaymentConfig(data.config);
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        console.error('Failed to load payment config:', err);
+      });
   }, [event?.slug]);
+
+  // Restore form state from localStorage
+  useEffect(() => {
+    const savedState = localStorage.getItem(`checkout-${slug}`);
+    if (savedState) {
+      try {
+        const parsed = JSON.parse(savedState);
+        setMpesaName(parsed.mpesaName || names[0] || '');
+        setPhone(parsed.phone || '');
+        setTxCode(parsed.txCode || '');
+      } catch {}
+    }
+  }, [slug, names]);
+
+  // Save form state to localStorage
+  useEffect(() => {
+    if (slug) {
+      localStorage.setItem(`checkout-${slug}`, JSON.stringify({
+        mpesaName,
+        phone,
+        txCode,
+      }));
+    }
+  }, [slug, mpesaName, phone, txCode]);
 
   const ticket = event?.ticketTypes.find((t: any) => t.id === params.get("ticket")) || event?.ticketTypes[0];
 
@@ -283,6 +311,9 @@ export default function CheckoutPage() {
         return;
       }
 
+      // Clear saved checkout state
+      localStorage.removeItem(`checkout-${slug}`);
+      
       setOrderNumber(data.orderNumber || "");
       setStatus("done");
     } catch {

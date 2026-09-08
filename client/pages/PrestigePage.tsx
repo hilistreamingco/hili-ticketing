@@ -582,6 +582,28 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
+  // Auto-logout after 30 minutes of inactivity
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    
+    const resetTimeout = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        alert('Session expired due to inactivity');
+        onLogout();
+      }, 30 * 60 * 1000); // 30 minutes
+    };
+
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach(event => window.addEventListener(event, resetTimeout));
+    resetTimeout();
+
+    return () => {
+      clearTimeout(timeout);
+      events.forEach(event => window.removeEventListener(event, resetTimeout));
+    };
+  }, [onLogout]);
+
   const loadData = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
