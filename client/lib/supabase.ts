@@ -387,15 +387,15 @@ export async function fetchPrestigeOrder(orderId: string): Promise<Order> {
 }
 
 export async function confirmPrestigePayment(orderId: string): Promise<ConfirmPaymentResponse> {
-  return prestigePost<ConfirmPaymentResponse>("/api/prestige/orders/confirm", { orderId });
+  return prestigePost<ConfirmPaymentResponse>("/api/prestige/orders", { action: 'confirm', orderId });
 }
 
 export async function markPrestigeNotFound(orderId: string, note?: string): Promise<void> {
-  await prestigePost("/api/prestige/orders/not-found", { orderId, note });
+  await prestigePost("/api/prestige/orders", { action: 'notFound', orderId, note });
 }
 
 export async function sendPrestigeTicket(orderId: string): Promise<SendTicketResponse> {
-  return prestigePost<SendTicketResponse>("/api/prestige/orders/send-ticket", { orderId });
+  return prestigePost<SendTicketResponse>("/api/prestige/orders", { action: 'send', orderId });
 }
 
 export async function savePrestigePaymentConfig(
