@@ -249,9 +249,9 @@ function OrderModal({
       const ticketData = order.tickets?.map((ticket: any) => ({
         ticketNumber: ticket.ticket_number,
         attendeeName: ticket.attendee_name,
-        eventName: order.event_name || "Event",
+        eventName: order.event?.name || "Event",
         ticketType: order.items?.[0]?.ticket_type_name || "General Admission",
-        eventDate: order.event?.start_date ? new Date(order.event.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase() : undefined,
+        eventDate: order.event?.event_date ? new Date(order.event.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase() : undefined,
         eventVenue: order.event?.venue || undefined,
         orderId: order.id.slice(0, 28), // Shortened order ID
       })) || [];
@@ -266,7 +266,7 @@ function OrderModal({
       openGmailWithTickets(
         order.purchaser_email,
         order.purchaser_name,
-        order.event_name || "Event",
+        order.event?.name || "Event",
         pdfBlob,
         ticketData
       );
@@ -275,6 +275,7 @@ function OrderModal({
       await load();
       onRefresh();
     } catch (err) {
+      console.error("Send ticket error:", err);
       showToast(err instanceof Error ? err.message : "Could not generate tickets", "error");
     } finally {
       setActionState("idle");
