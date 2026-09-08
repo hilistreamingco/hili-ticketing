@@ -3,9 +3,15 @@
   "installCommand": "pnpm install --no-frozen-lockfile",
   "buildCommand": "pnpm build:client",
   "outputDirectory": "dist/spa",
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 10
+    }
+  },
   "rewrites": [
     { "source": "/api/ping", "destination": "/api/ping" },
     { "source": "/api/admin/me", "destination": "/api/admin/me" },
+    { "source": "/api/admin/upload-poster", "destination": "/api/admin/upload-poster" },
     { "source": "/api/admin/events/:id/tickets", "destination": "/api/admin/events/[id]/tickets" },
     { "source": "/api/admin/events/:id", "destination": "/api/admin/events/[id]" },
     { "source": "/api/admin/events", "destination": "/api/admin/events" },
