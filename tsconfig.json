@@ -25,8 +25,8 @@
     "noFallthroughCasesInSwitch": false,
     "strictNullChecks": false,
 
-    // Include Node.js types so server files resolve process, Buffer, crypto etc.
-    "types": ["node"],
+    // Node types will be auto-detected from imports
+    // "types": ["node"],
 
     
     "paths": {
