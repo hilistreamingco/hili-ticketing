@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -226,22 +226,22 @@ export default function CheckoutPage() {
       });
   }, [event?.slug]);
 
-  // Restore form state from localStorage - only on mount
-  const restoredRef = useState(false);
+  // Restore form state from localStorage - only once on mount
+  const hasRestored = useRef(false);
   useEffect(() => {
-    if (restoredRef[0]) return;
+    if (hasRestored.current) return;
+    hasRestored.current = true;
     const savedState = localStorage.getItem(`checkout-${slug}`);
     if (savedState) {
       try {
         const parsed = JSON.parse(savedState);
-        if (!mpesaName) setMpesaName(parsed.mpesaName || names[0] || '');
-        if (!phone) setPhone(parsed.phone || '');
-        if (!txCode) setTxCode(parsed.txCode || '');
+        if (parsed.mpesaName) setMpesaName(parsed.mpesaName);
+        if (parsed.phone) setPhone(parsed.phone);
+        if (parsed.txCode) setTxCode(parsed.txCode);
       } catch {}
     }
-    restoredRef[1](true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+  }, []);
 
   // Save form state to localStorage (debounced)
   useEffect(() => {
@@ -250,7 +250,6 @@ export default function CheckoutPage() {
       localStorage.setItem(`checkout-${slug}`, JSON.stringify({ mpesaName, phone, txCode }));
     }, 500);
     return () => clearTimeout(timer);
-  }, [slug, mpesaName, phone, txCode]);
   }, [slug, mpesaName, phone, txCode]);
 
   const ticket = event?.ticketTypes.find((t: any) => t.id === params.get("ticket")) || event?.ticketTypes[0];
