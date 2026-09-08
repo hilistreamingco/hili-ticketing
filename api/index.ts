@@ -115,16 +115,23 @@ app.all('/api/prestige/orders', async (req, res) => {
           // Fall through to generate tickets for already-confirmed order
         }
 
-        // Always count existing tickets to determine next number (avoids duplicates)
-        const { count: existingCount } = await supabase
+        // Get highest existing ticket number to avoid race conditions
+        const { data: lastTicket } = await supabase
           .from('tickets')
-          .select('id', { count: 'exact', head: true });
-        let nextNumber = (existingCount || 0) + 1;
+          .select('ticket_number')
+          .order('ticket_number', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        let nextNumber = 1;
+        if (lastTicket?.ticket_number) {
+          const match = lastTicket.ticket_number.match(/\d+$/);
+          if (match) nextNumber = parseInt(match[0]) + 1;
+        }
 
         const tickets = [];
         const items = order.order_items || [];
 
-        // If no order_items, create one ticket for the purchaser
         if (items.length === 0) {
           tickets.push({
             order_id: order.id,
@@ -138,7 +145,7 @@ app.all('/api/prestige/orders', async (req, res) => {
             const qty = item.quantity || 1;
             const attendeeNames = (item.attendee_names && item.attendee_names.length >= qty)
               ? item.attendee_names
-              : Array(qty).fill(order.purchaser_name);
+              : Array(qty).fill(null).map((_, i) => item.attendee_names?.[i] || order.purchaser_name);
             for (const name of attendeeNames) {
               tickets.push({
                 order_id: order.id,
@@ -210,12 +217,14 @@ app.all('/api/prestige/orders', async (req, res) => {
         .single();
 
       if (error) return res.status(404).json({ error: 'Not found' });
-      return res.json({ order });
+      // Map order_items to items for frontend compatibility
+      const mapped = { ...order, items: order.order_items || [] };
+      return res.json({ order: mapped });
     }
 
     // GET list
     const { status, fulfillment } = req.query;
-    let query = supabase.from('orders').select('*, order_items(*), event:events(name)').order('created_at', { ascending: false });
+    let query = supabase.from('orders').select('*, order_items(*, ticket_type:ticket_types(*)), event:events(name)').order('created_at', { ascending: false });
 
     if (status === 'pending') query = query.in('status', ['pending', 'processing']);
     else if (status === 'confirmed') {
@@ -225,7 +234,9 @@ app.all('/api/prestige/orders', async (req, res) => {
     else if (status === 'sent') query = query.in('status', ['confirmed', 'paid']).eq('fulfillment_status', 'sent');
 
     const { data: orders } = await query;
-    res.json({ orders: orders || [] });
+    // Map order_items to items for each order
+    const mappedOrders = (orders || []).map((o: any) => ({ ...o, items: o.order_items || [] }));
+    res.json({ orders: mappedOrders });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
