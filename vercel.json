@@ -1,13 +1,11 @@
 {
   "functions": {
-    "api/**/*.js": {
-      "maxDuration": 30
-    },
     "api/**/*.ts": {
       "maxDuration": 30
     }
   },
   "rewrites": [
+    { "source": "/api/prestige/:path*", "destination": "/api" },
     { "source": "/:path*", "destination": "/index.html" }
   ]
 }

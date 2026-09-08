@@ -1,66 +1,83 @@
-import "dotenv/config";
-import express from "express";
-import cors from "cors";
-import { handleDemo } from "./routes/demo.js";
-import { handleMpesaCallback, handleMpesaStkPush, handleMpesaStatus } from "./routes/mpesa.js";
-import { handleContactEmail } from "./routes/contact.js";
-import {
-  handleGetPaymentConfig,
-  handleUpsertPaymentConfig,
-  handleCreateManualOrder,
-} from "./routes/prestige.js";
-import {
-  handleGetEvents,
-  handleCreateEvent,
-  handleUpdateEvent,
-  handleGetTicketTypes,
-  handleCreateTicketType,
-  handleUpdateTicketType,
-  handleDeleteTicketType,
-  handleUploadPoster,
-  handleGetMyRole,
-} from "./routes/admin.js";
+import express from 'express';
+import { createServer as createViteServer } from 'vite';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import dotenv from 'dotenv';
 
-export function createServer() {
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const isProduction = process.env.NODE_ENV === 'production';
+const port = process.env.PORT || 8080;
+
+async function createServer() {
   const app = express();
-
-  app.use(cors());
-  app.use(express.json({ limit: "10mb" }));
+  
+  app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // ── Health / demo ────────────────────────────────────────────────────────
-  app.get("/api/ping", (_req, res) => {
-    const ping = process.env.PING_MESSAGE ?? "ping";
-    res.json({ message: ping });
+  // Import and mount all API routes
+  const { default: pingHandler } = await import('../api/ping.js');
+  const { default: adminMe } = await import('../api/admin/me.js');
+  const { default: adminEvents } = await import('../api/admin/events.js');
+  const { default: adminEventById } = await import('../api/admin/events/[id].js');
+  const { default: adminEventTickets } = await import('../api/admin/events/[id]/tickets.js');
+  const { default: adminTickets } = await import('../api/admin/tickets.js');
+  const { default: adminTicketById } = await import('../api/admin/tickets/[id].js');
+  const { default: adminUploadPoster } = await import('../api/admin/upload-poster.js');
+  const { default: ordersManual } = await import('../api/orders/manual.js');
+  const { default: paymentConfig } = await import('../api/payment-config/[eventSlug].js');
+  const { default: prestigeStats } = await import('../api/prestige/stats.js');
+  const { default: prestigeOrders } = await import('../api/prestige/orders.js');
+
+  // Mount API routes
+  app.all('/api/ping', pingHandler);
+  app.all('/api/admin/me', adminMe);
+  app.all('/api/admin/events', adminEvents);
+  app.all('/api/admin/events/:id', (req, res) => {
+    req.query = { ...req.query, id: req.params.id };
+    adminEventById(req, res);
   });
-  app.get("/api/demo", handleDemo);
-  app.post("/api/contact", handleContactEmail);
+  app.all('/api/admin/events/:id/tickets', (req, res) => {
+    req.query = { ...req.query, id: req.params.id };
+    adminEventTickets(req, res);
+  });
+  app.all('/api/admin/tickets', adminTickets);
+  app.all('/api/admin/tickets/:id', (req, res) => {
+    req.query = { ...req.query, id: req.params.id };
+    adminTicketById(req, res);
+  });
+  app.all('/api/admin/upload-poster', adminUploadPoster);
+  app.all('/api/orders/manual', ordersManual);
+  app.all('/api/payment-config/:eventSlug', (req, res) => {
+    req.query = { ...req.query, eventSlug: req.params.eventSlug };
+    paymentConfig(req, res);
+  });
+  app.all('/api/prestige/stats', prestigeStats);
+  app.all('/api/prestige/orders', prestigeOrders);
 
-  // ── Hili Admin API (service-role, hili_admin only) ────────────────────────
-  app.get("/api/admin/events", handleGetEvents);
-  app.post("/api/admin/events", handleCreateEvent);
-  app.put("/api/admin/events/:id", handleUpdateEvent);
-  app.get("/api/admin/events/:id/tickets", handleGetTicketTypes);
-  app.post("/api/admin/tickets", handleCreateTicketType);
-  app.put("/api/admin/tickets/:id", handleUpdateTicketType);
-  app.delete("/api/admin/tickets/:id", handleDeleteTicketType);
-  app.post("/api/admin/upload-poster", handleUploadPoster);
-  app.get("/api/admin/me", handleGetMyRole);
+  if (isProduction) {
+    // Serve static files from dist/spa in production
+    app.use(express.static(join(__dirname, '../dist/spa')));
+    
+    // SPA fallback - all non-API routes serve index.html
+    app.get('*', (req, res) => {
+      res.sendFile(join(__dirname, '../dist/spa/index.html'));
+    });
+  } else {
+    // Development mode with Vite dev server
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    
+    app.use(vite.middlewares);
+  }
 
-  // ── Legacy Daraja STK push (kept for mock mode) ──────────────────────────
-  app.post("/api/payments/mpesa/stk-push", handleMpesaStkPush);
-  app.post("/api/payments/mpesa/callback", handleMpesaCallback);
-  app.get("/api/payments/mpesa/status/:checkoutRequestId", handleMpesaStatus);
-
-  // ── Manual order creation (called from public checkout) ──────────────────
-  app.post("/api/orders/manual", handleCreateManualOrder);
-
-  // ── Payment config (public read) ─────────────────────────────────────────
-  app.get("/api/payment-config/:eventSlug", handleGetPaymentConfig);
-
-  // ── Prestige payment config update (auth-gated) ───────────────────────────
-  // NOTE: Other Prestige endpoints (/api/prestige/*) are serverless functions in api/prestige/
-  app.put("/api/prestige/payment-config", handleUpsertPaymentConfig);
-
-  return app;
+  app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
+  });
 }
+
+createServer();
