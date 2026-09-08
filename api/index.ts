@@ -146,11 +146,14 @@ app.all('/api/prestige/orders', async (req, res) => {
         if (!order.tickets?.length) return res.status(400).json({ error: 'No tickets' });
         if (order.fulfillment_status === 'sent') return res.json({ success: true, message: 'Already sent' });
 
-        await supabase.from('orders').update({
+        const { error: updateError } = await supabase.from('orders').update({
           fulfillment_status: 'sent',
-          fulfilled_at: new Date().toISOString(),
-          fulfilled_by: user.uid,
         }).eq('id', orderId);
+
+        if (updateError) {
+          console.error('Update error:', updateError);
+          return res.status(500).json({ error: 'Failed to update order' });
+        }
 
         return res.json({ success: true, message: 'Marked as sent' });
       }
