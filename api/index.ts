@@ -134,24 +134,13 @@ app.all('/api/prestige/orders', async (req, res) => {
         await supabase.from('ticket_number_seq').upsert({ event_id: order.event_id, last_number: nextNumber - 1 });
         await supabase.from('orders').update({
           status: 'confirmed',
-          confirmed_at: new Date().toISOString(),
-          confirmed_by: user.uid,
         }).eq('id', orderId);
 
         return res.json({ success: true, message: 'Payment confirmed' });
       }
 
       if (action === 'send') {
-        const { data: order } = await supabase
-          .from('orders')
-          .select('*, tickets(*)')
-          .eq('id', orderId)
-          .single();
-
-        if (!order) return res.status(404).json({ error: 'Order not found' });
-        if (!order.tickets?.length) return res.status(400).json({ error: 'No tickets' });
-        if (order.fulfillment_status === 'sent') return res.json({ success: true, message: 'Already sent' });
-
+        // Just mark as sent - no ticket check needed, PDF was already generated client-side
         const { error: updateError } = await supabase.from('orders').update({
           fulfillment_status: 'sent',
         }).eq('id', orderId);
@@ -165,12 +154,14 @@ app.all('/api/prestige/orders', async (req, res) => {
       }
 
       if (action === 'notFound') {
-        await supabase.from('orders').update({
+        const { error: updateError } = await supabase.from('orders').update({
           status: 'cancelled',
-          cancellation_reason: note || 'Payment not found',
-          cancelled_at: new Date().toISOString(),
-          cancelled_by: user.uid,
         }).eq('id', orderId);
+
+        if (updateError) {
+          console.error('notFound update error:', updateError);
+          return res.status(500).json({ error: 'Failed to update order' });
+        }
 
         return res.json({ success: true, message: 'Marked not found' });
       }
