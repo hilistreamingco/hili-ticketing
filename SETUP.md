@@ -7,16 +7,12 @@ All code is complete. Follow these steps to finish deployment:
 Go to your Supabase project → SQL Editor and run these in order:
 
 ### Migration 003 (optional — makes org_id nullable)
-```sql
--- File: supabase/migrations/003_remove_org_dependency.sql
--- Copy+paste the entire file content
-```
+Copy the entire content of `supabase/migrations/003_remove_org_dependency.sql` and paste it into the SQL Editor, then click Run.
+
+**Note:** This migration drops the `events_slug_key` constraint (which was blocking duplicate slugs). The server now handles slug conflicts by appending timestamps.
 
 ### Migration 004 (required — removes organizations entirely)
-```sql
--- File: supabase/migrations/004_remove_organizations.sql
--- Copy+paste the entire file content
-```
+Copy the entire content of `supabase/migrations/004_remove_organizations.sql` and paste it into the SQL Editor, then click Run.
 
 **Why:** These migrations remove the `organizations` and `organization_members` tables entirely. Auth is now email-based (ADMIN_EMAILS / PRESTIGE_EMAILS env vars).
 
@@ -130,7 +126,12 @@ The errors will disappear.
 → Get the key from Supabase Dashboard → Settings → API → `service_role` (secret).  
 → Add it to `.env` (local) and Vercel env vars (production).
 
-### Events not showing on homepage
+### "drop index events_slug_key" fails
+→ Run migration 003 again (it's now fixed to drop the constraint first, then the index)  
+→ Or manually run: `ALTER TABLE public.events DROP CONSTRAINT IF EXISTS events_slug_key;`
+
+### Vercel build fails with "node:path" error
+→ Fixed in latest commit — re-deploy from the updated branch
 → Check that event `status = 'published'` in Supabase Dashboard → Table Editor → events  
 → Check browser console for Supabase errors (wrong anon key, wrong URL, etc.)
 
