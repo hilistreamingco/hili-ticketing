@@ -77,6 +77,16 @@ export async function getEvents(): Promise<HiliEvent[]> {
     return [];
   }
 
+  console.log("Fetched events with tickets:", eventsData.map(e => ({
+    name: e.name,
+    ticket_count: e.ticket_types?.length || 0,
+    tickets: e.ticket_types?.map((t: any) => ({
+      name: t.name,
+      visible: t.is_visible,
+      active: t.is_active
+    }))
+  })));
+
   return eventsData.map((ev): HiliEvent => {
     const tickets = (ev.ticket_types ?? []) as Array<{
       id: string;
@@ -150,7 +160,21 @@ export async function getEventBySlug(slug: string): Promise<HiliEvent | null> {
     .eq("status", "published")
     .maybeSingle();
 
-  if (error || !ev) return null;
+  if (error || !ev) {
+    console.error("Error fetching event by slug:", slug, error);
+    return null;
+  }
+
+  console.log(`Event ${slug} fetched:`, {
+    name: ev.name,
+    ticket_count: ev.ticket_types?.length || 0,
+    tickets: ev.ticket_types?.map((t: any) => ({
+      name: t.name,
+      visible: t.is_visible,
+      active: t.is_active,
+      price: t.price_kes
+    }))
+  });
 
   const tickets = (ev.ticket_types ?? []) as Array<{
     id: string;
