@@ -398,6 +398,10 @@ export async function sendPrestigeTicket(orderId: string): Promise<SendTicketRes
   return prestigePost<SendTicketResponse>("/api/prestige/orders", { action: 'send', orderId });
 }
 
+export async function generatePrestigeTickets(orderId: string): Promise<{ success: boolean; message: string }> {
+  return prestigePost("/api/prestige/orders", { action: 'generateTickets', orderId });
+}
+
 export async function savePrestigePaymentConfig(
   req: UpsertPaymentConfigRequest,
 ): Promise<void> {

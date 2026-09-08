@@ -96,7 +96,24 @@ app.all('/api/prestige/orders', async (req, res) => {
         return res.status(400).json({ error: 'Missing action or orderId', received: { action, orderId } });
       }
 
-      if (action === 'confirm' || action === 'generateTickets') {
+      if (action === 'confirm') {
+        // Just confirm the payment - ticket generation is a separate step
+        const { data: order } = await supabase
+          .from('orders')
+          .select('status')
+          .eq('id', orderId)
+          .single();
+
+        if (!order) return res.status(404).json({ error: 'Order not found' });
+        if (order.status === 'confirmed' || order.status === 'paid') {
+          return res.json({ success: true, message: 'Already confirmed' });
+        }
+
+        await supabase.from('orders').update({ status: 'confirmed' }).eq('id', orderId);
+        return res.json({ success: true, message: 'Payment confirmed' });
+      }
+
+      if (action === 'generateTickets') {
         const { data: order, error: orderError } = await supabase
           .from('orders')
           .select('*, order_items(*), event:events(*)')
@@ -105,17 +122,17 @@ app.all('/api/prestige/orders', async (req, res) => {
 
         if (orderError || !order) return res.status(404).json({ error: 'Order not found' });
 
-        // Check if tickets already exist for this order
+        // Check if tickets already exist
         const { data: existingTickets } = await supabase
           .from('tickets')
           .select('id')
           .eq('order_id', orderId);
 
-        if (existingTickets && existingTickets.length > 0 && action === 'confirm' && (order.status === 'confirmed' || order.status === 'paid')) {
-          return res.json({ success: true, message: 'Already confirmed' });
+        if (existingTickets && existingTickets.length > 0) {
+          return res.json({ success: true, message: 'Tickets already generated' });
         }
 
-        // Get all existing ticket numbers to find the max
+        // Get max ticket number across all tickets
         const { data: allTickets } = await supabase
           .from('tickets')
           .select('ticket_number');
@@ -134,7 +151,6 @@ app.all('/api/prestige/orders', async (req, res) => {
         const ticketsToInsert: any[] = [];
 
         if (items.length === 0) {
-          // No order items - create one ticket for purchaser
           ticketsToInsert.push({
             order_id: order.id,
             event_id: order.event_id,
@@ -147,12 +163,11 @@ app.all('/api/prestige/orders', async (req, res) => {
           for (const item of items) {
             const qty = item.quantity || 1;
             for (let idx = 0; idx < qty; idx++) {
-              const attendeeName = item.attendee_names?.[idx] || order.purchaser_name;
               ticketsToInsert.push({
                 order_id: order.id,
                 event_id: order.event_id,
                 ticket_type_id: item.ticket_type_id,
-                attendee_name: attendeeName,
+                attendee_name: item.attendee_names?.[idx] || order.purchaser_name,
                 attendee_index: idx,
                 ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
               });
@@ -166,12 +181,10 @@ app.all('/api/prestige/orders', async (req, res) => {
 
         if (ticketError) {
           console.error('Ticket insert error:', ticketError);
-          return res.status(500).json({ error: 'Failed to create tickets', detail: ticketError.message });
+          return res.status(500).json({ error: 'Failed to generate tickets', detail: ticketError.message });
         }
 
-        await supabase.from('orders').update({ status: 'confirmed' }).eq('id', orderId);
-
-        return res.json({ success: true, message: `Payment confirmed. ${ticketsToInsert.length} ticket(s) generated.` });
+        return res.json({ success: true, message: `${ticketsToInsert.length} ticket(s) generated` });
       }
 
       if (action === 'send') {

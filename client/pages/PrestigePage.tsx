@@ -31,6 +31,7 @@ import {
   confirmPrestigePayment,
   markPrestigeNotFound,
   sendPrestigeTicket,
+  generatePrestigeTickets,
   subscribeToPrestigeOrders,
   getCurrentUserRole,
   isPrestigeRole,
@@ -499,13 +500,13 @@ function OrderModal({
 
               {isConfirmed && !isSent && (
                 <>
-                  {/* If no tickets generated yet, show Generate Tickets button */}
+                  {/* Step 1: Generate tickets if not yet done */}
                   {(!order.tickets || order.tickets.length === 0) && (
                     <Button
                       onClick={async () => {
                         setActionState("confirming");
                         try {
-                          await confirmPrestigePayment(order.id);
+                          await generatePrestigeTickets(order.id);
                           showToast("Tickets generated!", "success");
                           await load();
                           onRefresh();
@@ -519,9 +520,10 @@ function OrderModal({
                       className="h-12 w-full bg-[#c1ff1a] text-black hover:bg-[#b0ee10]"
                     >
                       {actionState === "confirming" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <TicketIcon className="mr-2 h-4 w-4" />}
-                      Generate Tickets
+                      Generate Ticket(s)
                     </Button>
                   )}
+                  {/* Step 2: Send tickets once generated */}
                   {order.tickets && order.tickets.length > 0 && (
                     <Button
                       onClick={handleSend}
@@ -532,6 +534,7 @@ function OrderModal({
                       Send Ticket via Gmail
                     </Button>
                   )}
+                  {/* Step 3: Mark as sent */}
                   <Button
                     onClick={handleMarkSent}
                     disabled={actionState !== "idle"}
