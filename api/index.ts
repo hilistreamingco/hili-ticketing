@@ -54,13 +54,17 @@ app.get('/api/prestige/stats', async (req, res) => {
 
     const supabase = getSupabase();
     const { data: orders } = await supabase.from('orders').select('status, amount_kes, fulfillment_status');
+    const { data: tickets } = await supabase.from('tickets').select('id');
+
+    const confirmedOrders = orders?.filter((o: any) => o.status === 'confirmed' || o.status === 'paid') || [];
 
     const stats = {
       totalOrders: orders?.length || 0,
       pendingOrders: orders?.filter((o: any) => o.status === 'pending' || o.status === 'processing').length || 0,
-      confirmedOrders: orders?.filter((o: any) => o.status === 'confirmed' || o.status === 'paid').length || 0,
+      confirmedOrders: confirmedOrders.length,
       sentOrders: orders?.filter((o: any) => o.fulfillment_status === 'sent').length || 0,
-      totalRevenue: orders?.reduce((sum: number, o: any) => sum + (o.amount_kes || 0), 0) || 0,
+      totalRevenue: confirmedOrders.reduce((sum: number, o: any) => sum + (o.amount_kes || 0), 0),
+      totalAttendees: tickets?.length || 0,
     };
 
     res.json(stats);
