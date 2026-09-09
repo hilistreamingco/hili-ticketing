@@ -625,7 +625,7 @@ function OrderModal({
                 Payment Not Found
               </h3>
               <p className="mt-2 text-center text-sm text-white/60">
-                Mark this order as payment not found on the M-Pesa account.
+                Could not find this payment on M-Pesa. What would you like to do?
               </p>
               <label className="mt-4 block text-xs text-white/50">
                 Note (optional)
@@ -636,20 +636,22 @@ function OrderModal({
                   onChange={(e) => setNotFoundNote(e.target.value)}
                 />
               </label>
-              <div className="mt-5 flex gap-3">
+              <div className="mt-5 flex flex-col gap-2">
                 <Button
                   variant="outline"
-                  className="flex-1 border-white/20 text-white hover:bg-white/10"
+                  className="w-full border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
                   onClick={() => setShowNotFoundDialog(false)}
                 >
-                  Cancel
+                  Keep in Pending
                 </Button>
+                <p className="text-center text-xs text-white/30">keep if payment may still come through</p>
                 <Button
-                  className="flex-1 bg-red-500 text-white hover:bg-red-600"
+                  className="mt-1 w-full bg-red-500 text-white hover:bg-red-600"
                   onClick={() => void handleNotFound()}
                 >
-                  Mark Not Found
+                  Cancel Order
                 </Button>
+                <p className="text-center text-xs text-white/30">remove from pending permanently</p>
               </div>
             </div>
           </div>

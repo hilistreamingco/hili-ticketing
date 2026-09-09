@@ -37,7 +37,7 @@ function PaymentInstructions({
   amount: number;
 }) {
   // Fallback to environment variable till number if config not available
-  const number = config?.till_number ?? config?.number ?? "5451657";
+  const number = config?.number ?? "5451657";
   const isTill = !config || config.payment_type === "till";
   const accountRef = config?.account_number;
 
