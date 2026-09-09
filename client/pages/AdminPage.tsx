@@ -377,7 +377,9 @@ function EventEditor({ isCurrent }: { isCurrent: boolean }) {
     }
     // Re-read to get current row id
     const rows = await getAdminEvents();
-    const found = isCurrent ? rows.find(e => e.is_current) : rows.find(e => !e.is_current && e.status !== "archived");
+    const found = isCurrent
+      ? (rows.find(e => e.is_current) ?? rows.find(e => e.status === 'published') ?? rows[0])
+      : (rows.find(e => !e.is_current && e.status !== "archived") ?? rows[1] ?? rows[0]);
     if (!found) return;
 
     setUploading(true);
