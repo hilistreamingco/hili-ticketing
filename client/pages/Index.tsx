@@ -60,7 +60,7 @@ export default function Index() {
             <h1 className="mt-6 font-display text-5xl font-bold leading-[.92] tracking-[-.07em] sm:text-7xl md:text-8xl">
               {upcoming.title}
             </h1>
-            <p className="mt-7 max-w-sm text-base leading-7 text-black/65">
+            <p className="mt-7 max-w-sm font-display text-base font-bold leading-7 text-black">
               {upcoming.shortDescription}
             </p>
             <Button asChild size="lg" variant="secondary" className="mt-8">
