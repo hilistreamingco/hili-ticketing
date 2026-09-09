@@ -123,7 +123,6 @@ export async function getEvents(): Promise<HiliEvent[]> {
         "Valid ID required for entry",
         "No refunds after purchase",
         "Ticket is non-transferable",
-        "Event is subject to change",
       ],
       theme: (ev.theme as EventTheme) ?? {
         mode: "dark",
