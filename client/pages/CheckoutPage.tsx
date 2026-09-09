@@ -79,9 +79,9 @@ function PaymentInstructions({
           <li className="flex gap-2">
             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">4</span>
             {isTill ? (
-              <>Enter Till Number: <strong className="font-mono text-foreground">{number}</strong></>
+              <span>Enter Till Number: <strong className="font-mono text-foreground">{number}</strong> <span className="text-muted-foreground">(PRESTIGE CINEMA 6)</span></span>
             ) : (
-              <>Enter Business Number: <strong className="font-mono text-foreground">{number}</strong></>
+              <span>Enter Business Number: <strong className="font-mono text-foreground">{number}</strong></span>
             )}
           </li>
           {!isTill && accountRef && (
