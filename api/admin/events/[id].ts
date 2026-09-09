@@ -29,7 +29,7 @@ function getAuthedUser(authHeader: string | undefined) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   if (req.method === 'OPTIONS') {
@@ -54,6 +54,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const supabase = createClient(url, key, { auth: { persistSession: false } });
+
+    // GET - fetch single event
+    if (req.method === 'GET') {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (error) throw error;
+      return res.json({ event: data });
+    }
 
     // PUT - Update event
     if (req.method === 'PUT') {
