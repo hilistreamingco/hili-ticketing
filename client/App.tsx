@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { CalendarDays, LogIn, TicketCheck, Users } from "lucide-react";
+import { Analytics } from "@vercel/analytics/react";
 import Index from "./pages/Index";
 import EventPage from "./pages/EventPage";
 import UpcomingPage from "./pages/UpcomingPage";
@@ -57,7 +58,7 @@ function App() {
     <Route path="/admin/attendees" element={<PlaceholderPage title="Attendees" description="Search, filter, and manage your event attendees." icon={Users} />} />
     <Route path="/admin/prestige" element={<PrestigePage />} />
     <Route path="*" element={<NotFound />} />
-  </Routes></BrowserRouter></TooltipProvider></QueryClientProvider>;
+  </Routes></BrowserRouter></TooltipProvider></QueryClientProvider><Analytics />;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
