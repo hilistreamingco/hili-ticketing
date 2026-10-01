@@ -1,56 +1,22 @@
 import express from 'express';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
+import { getAuthedUser, getServiceClient, isHiliAdmin, canUsePrestige } from './_lib/auth.js';
 
 const app = express();
 app.use(express.json());
 
-// Lazy-load Supabase client (only when needed)
-let supabaseClient: any = null;
+// Auth is verified (signature checked by Supabase Auth) in api/_lib/auth.ts
 function getSupabase() {
-  if (!supabaseClient) {
-    supabaseClient = createClient(
-      process.env.VITE_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
-  }
-  return supabaseClient;
-}
-
-// Auth helper
-function parseJWT(token: string) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-    if (payload.exp && payload.exp < Date.now() / 1000) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-function getAuthedUser(authHeader?: string) {
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const payload = parseJWT(authHeader.slice(7));
-  if (!payload?.email) return null;
-  
-  const email = payload.email.toLowerCase();
-  const prestigeEmails = (process.env.PRESTIGE_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  
-  if (adminEmails.includes(email) || prestigeEmails.includes(email)) {
-    return { uid: payload.sub || '', email };
-  }
-  return null;
+  const client = getServiceClient();
+  if (!client) throw new Error('Missing Supabase config');
+  return client as any;
 }
 
 // Prestige Stats
 app.get('/api/prestige/stats', async (req, res) => {
   try {
-    const user = getAuthedUser(req.headers.authorization);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!canUsePrestige(user)) return res.status(401).json({ error: 'Unauthorized' });
 
     const supabase = getSupabase();
     const { data: orders } = await supabase.from('orders').select('status, amount_kes, fulfillment_status');
@@ -81,8 +47,8 @@ app.get('/api/prestige/stats', async (req, res) => {
 // Prestige Orders (GET list or single, POST actions)
 app.all('/api/prestige/orders', async (req, res) => {
   try {
-    const user = getAuthedUser(req.headers.authorization);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!canUsePrestige(user)) return res.status(401).json({ error: 'Unauthorized' });
 
     const supabase = getSupabase();
 
@@ -247,6 +213,181 @@ app.all('/api/prestige/orders', async (req, res) => {
     // Map order_items to items for each order
     const mappedOrders = (orders || []).map((o: any) => ({ ...o, items: o.order_items || [] }));
     res.json({ orders: mappedOrders });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Payment config (Hili admin) ─────────────────────────────────────────────
+// The admin screen calls PUT /api/prestige/payment-config. This route did not
+// exist on Vercel before, so the till number could only be inserted by SQL.
+app.put('/api/prestige/payment-config', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { eventId, paymentType, number, accountNumber, instructions, tillName } = req.body || {};
+    if (!eventId || !paymentType || !number) {
+      return res.status(400).json({ error: 'eventId, paymentType, and number are required' });
+    }
+    if (!['till', 'paybill'].includes(paymentType)) {
+      return res.status(400).json({ error: 'paymentType must be till or paybill' });
+    }
+
+    const supabase = getSupabase();
+    const { error } = await supabase.from('payment_config').upsert({
+      event_id: eventId,
+      provider: 'manual',
+      payment_method: 'mpesa',
+      payment_type: paymentType,
+      number: String(number).trim(),
+      account_number: accountNumber || null,
+      instructions: instructions || null,
+      till_name: tillName || null,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'event_id' });
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not save payment config' });
+  }
+});
+
+// ── Hili admin data (new endpoints live under /api/x to stay within the
+//    Vercel function limit; see vercel.json) ────────────────────────────────
+
+function eventIdParam(req: any): string | null {
+  return typeof req.query.eventId === 'string' && req.query.eventId ? req.query.eventId : null;
+}
+
+// Overview numbers, optionally for one event. The admin page used to read the
+// orders table with the browser key, which row level security blocks, so the
+// numbers were always zero.
+app.get('/api/x/admin/stats', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const supabase = getSupabase();
+    const eventId = eventIdParam(req);
+
+    let ordersQuery = supabase.from('orders').select('status, amount_kes, order_items(quantity)');
+    let ticketsQuery = supabase
+      .from('tickets')
+      .select('id, order:orders!inner(status)')
+      .in('order.status', ['confirmed', 'paid']);
+    if (eventId) {
+      ordersQuery = ordersQuery.eq('event_id', eventId);
+      ticketsQuery = ticketsQuery.eq('event_id', eventId);
+    }
+
+    const [events, orders, tickets] = await Promise.all([
+      supabase.from('events').select('id', { count: 'exact', head: true }).eq('status', 'published'),
+      ordersQuery,
+      ticketsQuery,
+    ]);
+    if (orders.error) throw orders.error;
+    if (tickets.error) throw tickets.error;
+
+    const rows = (orders.data || []) as any[];
+    const confirmed = rows.filter((o) => o.status === 'confirmed' || o.status === 'paid');
+    res.json({
+      events: events.count ?? 0,
+      orders: rows.length,
+      confirmed: confirmed.length,
+      revenue: confirmed.reduce((sum, o) => sum + (o.amount_kes || 0), 0),
+      sold: confirmed.reduce((sum, o) => sum + (o.order_items || []).reduce((s: number, i: any) => s + i.quantity, 0), 0),
+      attendees: tickets.data?.length ?? 0,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Attendee list. Same reason as above: tickets are not readable with the browser key.
+app.get('/api/x/admin/attendees', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const supabase = getSupabase();
+    const eventId = eventIdParam(req);
+    let query = supabase
+      .from('tickets')
+      .select('id, ticket_number, attendee_name, checked_in_at, created_at, seat_label, event:events(name), ticket_type:ticket_types(name)')
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (eventId) query = query.eq('event_id', eventId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ tickets: data || [] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cinema price brackets (pricing_mode = 'seats_taken')
+app.get('/api/x/admin/brackets', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const eventId = eventIdParam(req);
+    if (!eventId) return res.status(400).json({ error: 'eventId is required' });
+
+    const { data, error } = await getSupabase()
+      .from('event_price_brackets')
+      .select('from_seat, price_kes')
+      .eq('event_id', eventId)
+      .order('from_seat', { ascending: true });
+    if (error) throw error;
+    res.json({ brackets: data || [] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/x/admin/brackets', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { eventId, rows } = req.body || {};
+    if (!eventId || !Array.isArray(rows) || rows.length === 0 || rows.length > 20) {
+      return res.status(400).json({ error: 'Send between 1 and 20 price brackets' });
+    }
+    const clean = rows.map((r: any) => ({ from_seat: Math.floor(Number(r.from_seat)), price_kes: Math.floor(Number(r.price_kes)) }));
+    if (clean.some((r: any) => !Number.isFinite(r.from_seat) || r.from_seat < 1 || !Number.isFinite(r.price_kes) || r.price_kes < 0)) {
+      return res.status(400).json({ error: 'Each bracket needs a starting seat of 1 or more and a price of 0 or more' });
+    }
+    clean.sort((a: any, b: any) => a.from_seat - b.from_seat);
+    if (clean[0].from_seat !== 1) {
+      return res.status(400).json({ error: 'The first bracket must start at seat 1' });
+    }
+    for (let i = 1; i < clean.length; i++) {
+      if (clean[i].from_seat === clean[i - 1].from_seat) {
+        return res.status(400).json({ error: 'Two brackets start at the same seat number' });
+      }
+    }
+
+    const supabase = getSupabase();
+    // Upsert first, then remove the rest, so a failure never leaves the event with no prices.
+    const { error: upsertError } = await supabase
+      .from('event_price_brackets')
+      .upsert(clean.map((r: any) => ({ event_id: eventId, ...r })), { onConflict: 'event_id,from_seat' });
+    if (upsertError) throw upsertError;
+
+    const keep = clean.map((r: any) => r.from_seat).join(',');
+    const { error: deleteError } = await supabase
+      .from('event_price_brackets')
+      .delete()
+      .eq('event_id', eventId)
+      .not('from_seat', 'in', `(${keep})`);
+    if (deleteError) throw deleteError;
+
+    res.json({ brackets: clean });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

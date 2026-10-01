@@ -111,6 +111,7 @@ export interface PaymentConfig {
   number: string | null;
   account_number: string | null;
   instructions: string | null;
+  till_name?: string | null;
   is_active: boolean;
 }
 
@@ -120,6 +121,7 @@ export interface UpsertPaymentConfigRequest {
   number: string;
   accountNumber?: string;
   instructions?: string;
+  tillName?: string;
 }
 
 // ── Prestige dashboard stats ───────────────────────────────────────────────

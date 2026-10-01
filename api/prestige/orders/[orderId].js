@@ -1,36 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
-
-function parseJWT(token) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-    if (payload.exp && payload.exp < Date.now() / 1000) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-function getAuthedUser(authHeader) {
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const payload = parseJWT(authHeader.slice(7));
-  if (!payload?.email) return null;
-  
-  const email = payload.email.toLowerCase();
-  const prestigeEmails = (process.env.PRESTIGE_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  
-  if (adminEmails.includes(email) || prestigeEmails.includes(email)) {
-    return { uid: payload.sub || '', email };
-  }
-  return null;
-}
+import { getAuthedUser, canUsePrestige, getServiceClient } from '../../_lib/auth.js';
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -41,18 +11,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const user = getAuthedUser(req.headers.authorization);
-    if (!user) {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!canUsePrestige(user)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const url = process.env.VITE_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
+    const supabase = getServiceClient();
+    if (!supabase) {
       return res.status(500).json({ error: 'Missing Supabase config' });
     }
-
-    const supabase = createClient(url, key, { auth: { persistSession: false } });
 
     const { orderId } = req.query;
 

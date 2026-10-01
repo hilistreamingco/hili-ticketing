@@ -6,6 +6,7 @@
   },
   "rewrites": [
     { "source": "/api/prestige/:path*", "destination": "/api" },
+    { "source": "/api/x/:path*", "destination": "/api" },
     { "source": "/:path*", "destination": "/index.html" }
   ]
 }

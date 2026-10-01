@@ -1,44 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
-
-function parseJWT(token: string) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-    if (payload.exp && payload.exp < Date.now() / 1000) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-function getAuthedUser(authHeader: string | undefined) {
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const payload = parseJWT(authHeader.slice(7));
-  if (!payload?.email) return null;
-  
-  const email = payload.email.toLowerCase();
-  const admins = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  
-  if (admins.includes(email)) {
-    return { uid: payload.sub || '', email, role: 'hili_admin' };
-  }
-  return null;
-}
+import { getAuthedUser, getServiceClient, isHiliAdmin } from '../../_lib/auth.js';
+import { cleanEventFields, derivePrefix, uniquePrefix } from '../../_lib/event-fields.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
   try {
-    const user = getAuthedUser(req.headers.authorization as string);
-    if (!user || user.role !== 'hili_admin') {
+    const user = await getAuthedUser(req.headers.authorization as string);
+    if (!isHiliAdmin(user)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -47,13 +18,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Event ID required' });
     }
 
-    const url = process.env.VITE_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
+    const supabase = getServiceClient();
+    if (!supabase) {
       return res.status(500).json({ error: 'Missing Supabase config' });
     }
-
-    const supabase = createClient(url, key, { auth: { persistSession: false } });
 
     // GET - fetch single event
     if (req.method === 'GET') {
@@ -66,28 +34,82 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.json({ event: data });
     }
 
-    // PUT - Update event
+    // PUT - Update event (partial: only the keys sent are changed)
     if (req.method === 'PUT') {
-      const body = req.body;
+      const { data: current, error: currentError } = await supabase
+        .from('events')
+        .select('id, name, status, event_type, pricing_mode, ticket_prefix, ticket_counter')
+        .eq('id', id)
+        .maybeSingle();
+      if (currentError) throw currentError;
+      if (!current) return res.status(404).json({ error: 'Event not found' });
+
+      const { fields, error: invalid } = cleanEventFields(req.body || {});
+      if (invalid) return res.status(400).json({ error: invalid });
+
+      const finalType = (fields.event_type as string) ?? current.event_type;
+      const finalMode = finalType === 'general'
+        ? 'tiers'
+        : ((fields.pricing_mode as string) ?? current.pricing_mode);
+      const finalStatus = (fields.status as string) ?? current.status;
+
+      // Type and pricing mode decide how orders are built; lock them once sales exist.
+      const changingType = fields.event_type !== undefined && fields.event_type !== current.event_type;
+      const changingMode = fields.pricing_mode !== undefined && fields.pricing_mode !== current.pricing_mode;
+      if (changingType || changingMode) {
+        const { count } = await supabase
+          .from('orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', id);
+        if (count) {
+          return res.status(409).json({ error: 'Event type and pricing mode cannot change once the event has orders.' });
+        }
+      }
+
+      if (fields.ticket_prefix !== undefined
+          && fields.ticket_prefix !== current.ticket_prefix
+          && current.ticket_counter > 0) {
+        return res.status(409).json({ error: 'The ticket prefix cannot change after tickets have been issued.' });
+      }
+
+      if (finalType === 'general') {
+        fields.seat_layout_id = null;
+        fields.pricing_mode = 'tiers';
+      } else if (current.event_type !== 'cinema') {
+        const { data: layout } = await supabase
+          .from('seat_layouts')
+          .select('id')
+          .eq('slug', 'cinema-1')
+          .maybeSingle();
+        if (!layout) {
+          return res.status(400).json({ error: 'The cinema seat layout is missing. Run migration 009 first.' });
+        }
+        fields.seat_layout_id = layout.id;
+      }
+      if (finalMode === 'seats_taken' && finalType !== 'cinema') {
+        return res.status(400).json({ error: 'Pricing by seats taken is only for cinema events.' });
+      }
+
+      // A published event needs a ticket prefix to issue tickets later.
+      const prefixAfter = fields.ticket_prefix !== undefined ? fields.ticket_prefix : current.ticket_prefix;
+      if (!prefixAfter) {
+        const name = (fields.name as string) ?? current.name;
+        fields.ticket_prefix = await uniquePrefix(supabase, derivePrefix(name), id);
+      }
+
+      if (finalStatus === 'published' && finalMode === 'seats_taken') {
+        const { count } = await supabase
+          .from('event_price_brackets')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', id);
+        if (!count) {
+          return res.status(400).json({ error: 'Add at least one price bracket before publishing.' });
+        }
+      }
+
       const { data, error } = await supabase
         .from('events')
-        .update({
-          name: body.name,
-          short_description: body.short_description,
-          description: body.description,
-          poster_path: body.poster_path,
-          venue: body.venue,
-          address: body.address,
-          city: body.city,
-          event_date: body.event_date,
-          start_time: body.start_time,
-          end_time: body.end_time,
-          venue_map_url: body.venue_map_url,
-          status: body.status,
-          is_current: body.is_current,
-          theme: body.theme,
-          settings: body.settings,
-        })
+        .update(fields)
         .eq('id', id)
         .select()
         .single();
@@ -96,8 +118,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.json({ event: data });
     }
 
-    // DELETE - Delete event
+    // DELETE - Delete event (only when nothing was ever ordered)
     if (req.method === 'DELETE') {
+      const { count } = await supabase
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', id);
+      if (count) {
+        return res.status(409).json({
+          error: 'This event has orders, so it cannot be deleted. Set its status to Archived instead.',
+        });
+      }
+
       const { error } = await supabase
         .from('events')
         .delete()
@@ -110,6 +142,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
     console.error('Event API error:', error);
+    if (error?.code === '23505') {
+      return res.status(409).json({ error: 'That ticket prefix is already used by another event.' });
+    }
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 }

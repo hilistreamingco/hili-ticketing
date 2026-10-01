@@ -9,9 +9,12 @@ export const supabase: SupabaseClient | null = url && anonKey ? createClient(url
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+export type EventType = "general" | "cinema";
+export type PricingMode = "tiers" | "seats_taken";
+export type SalesOverride = "auto" | "open" | "closed";
+
 export type AdminEvent = {
   id: string;
-  organization_id: string;
   slug: string;
   name: string;
   short_description: string | null;
@@ -25,9 +28,39 @@ export type AdminEvent = {
   end_time: string | null;
   venue_map_url: string | null;
   status: "draft" | "published" | "archived";
-  is_current: boolean;
+  /** No longer used: events are no longer split into "current" and "future". */
+  is_current?: boolean;
   theme: Record<string, unknown>;
   settings: Record<string, unknown>;
+  event_type: EventType;
+  seat_layout_id: string | null;
+  ticket_prefix: string | null;
+  max_seats_per_order: number;
+  pricing_mode: PricingMode;
+  sales_close_at: string | null;
+  sales_override: SalesOverride;
+};
+
+export type SalesState = "open" | "not_started" | "sold_out" | "closed";
+
+export type EventSalesOverview = {
+  state: SalesState;
+  sales_close_at: string | null;
+  pricing_mode: PricingMode;
+  tiers: Array<{ id: string; state: string; remaining: number | null }>;
+  seats_total: number;
+  seats_taken: number;
+} | null;
+
+export type PriceBracket = { from_seat: number; price_kes: number };
+
+export type AdminStats = {
+  events: number;
+  orders: number;
+  confirmed: number;
+  revenue: number;
+  sold: number;
+  attendees: number;
 };
 
 export type AdminTicketType = {
@@ -53,6 +86,7 @@ export type AdminTicket = {
   attendee_name: string;
   checked_in_at: string | null;
   created_at: string;
+  seat_label: string | null;
   event: { name: string } | null;
   ticket_type: { name: string } | null;
 };
@@ -120,8 +154,13 @@ export async function getAdminEvents(): Promise<AdminEvent[]> {
   return data.events;
 }
 
+export async function getAdminEvent(id: string): Promise<AdminEvent> {
+  const data = await adminGet<{ event: AdminEvent }>(`/api/admin/events/${id}`);
+  return data.event;
+}
+
 export async function createAdminEvent(
-  event: Omit<AdminEvent, "id" | "organization_id" | "slug" | "created_at" | "updated_at">,
+  event: Partial<AdminEvent> & { name: string },
 ): Promise<AdminEvent> {
   const data = await adminPost<{ event: AdminEvent }>("/api/admin/events", event);
   return data.event;
@@ -133,6 +172,37 @@ export async function saveAdminEvent(
   const { id, ...rest } = event;
   const data = await adminPut<{ event: AdminEvent }>(`/api/admin/events/${id}`, rest);
   return data.event;
+}
+
+export async function deleteAdminEvent(id: string): Promise<void> {
+  await adminDelete(`/api/admin/events/${id}`);
+}
+
+/** Live sales state for a published event (null for drafts). Uses the public RPC. */
+export async function getEventSalesOverview(eventId: string): Promise<EventSalesOverview> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc("event_sales_overview", { p_event: eventId });
+  if (error) return null;
+  return (data ?? null) as EventSalesOverview;
+}
+
+// ── Admin numbers and price brackets (server side, see api/index.ts) ───────
+
+export async function getAdminStats(eventId?: string): Promise<AdminStats> {
+  const q = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
+  return adminGet<AdminStats>(`/api/x/admin/stats${q}`);
+}
+
+export async function getAdminBrackets(eventId: string): Promise<PriceBracket[]> {
+  const data = await adminGet<{ brackets: PriceBracket[] }>(
+    `/api/x/admin/brackets?eventId=${encodeURIComponent(eventId)}`,
+  );
+  return data.brackets;
+}
+
+export async function saveAdminBrackets(eventId: string, rows: PriceBracket[]): Promise<PriceBracket[]> {
+  const data = await adminPut<{ brackets: PriceBracket[] }>("/api/x/admin/brackets", { eventId, rows });
+  return data.brackets;
 }
 
 // ── Ticket type CRUD (via server) ──────────────────────────────────────────
@@ -236,16 +306,12 @@ async function compressImage(file: File, maxWidth: number, quality: number): Pro
   });
 }
 
-// ── Attendee tickets (direct Supabase read — admins have RLS read access) ──
+// ── Attendee tickets (via server: tickets are not readable with the browser key) ──
 
-export async function getAdminTickets(): Promise<AdminTicket[]> {
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("tickets")
-    .select("id,ticket_number,attendee_name,checked_in_at,created_at,event:events(name),ticket_type:ticket_types(name)")
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as unknown as AdminTicket[];
+export async function getAdminTickets(eventId?: string): Promise<AdminTicket[]> {
+  const q = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
+  const data = await adminGet<{ tickets: AdminTicket[] }>(`/api/x/admin/attendees${q}`);
+  return data.tickets;
 }
 
 // ── Realtime ───────────────────────────────────────────────────────────────
@@ -256,9 +322,6 @@ export function subscribeToAdminData(onChange: () => void) {
     .channel("hili-admin-realtime")
     .on("postgres_changes", { event: "*", schema: "public", table: "events" }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_types" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, onChange)
     .subscribe();
   return () => { void supabase.removeChannel(channel); };
 }
@@ -410,8 +473,9 @@ export async function savePrestigePaymentConfig(
   await prestigePut("/api/prestige/payment-config", req);
 }
 
-export async function fetchPaymentConfig(eventSlug: string): Promise<PaymentConfig | null> {
-  const data = await fetch(`/api/payment-config/${eventSlug}`)
+export async function fetchPaymentConfig(eventSlug: string, asAdmin = false): Promise<PaymentConfig | null> {
+  const headers = asAdmin ? await authHeader() : {};
+  const data = await fetch(`/api/payment-config/${eventSlug}`, { headers })
     .then((r) => r.json() as Promise<{ config: PaymentConfig | null }>)
     .catch(() => ({ config: null }));
   return data.config;

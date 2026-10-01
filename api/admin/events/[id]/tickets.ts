@@ -1,37 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
-
-function parseJWT(token: string) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-    if (payload.exp && payload.exp < Date.now() / 1000) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-function getAuthedUser(authHeader: string | undefined) {
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const payload = parseJWT(authHeader.slice(7));
-  if (!payload?.email) return null;
-  
-  const email = payload.email.toLowerCase();
-  const admins = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  
-  if (admins.includes(email)) {
-    return { uid: payload.sub || '', email, role: 'hili_admin' };
-  }
-  return null;
-}
+import { getAuthedUser, getServiceClient, isHiliAdmin } from '../../../_lib/auth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -41,8 +11,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const user = getAuthedUser(req.headers.authorization as string);
-    if (!user || user.role !== 'hili_admin') {
+    const user = await getAuthedUser(req.headers.authorization as string);
+    if (!isHiliAdmin(user)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -51,22 +21,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Event ID required' });
     }
 
-    const url = process.env.VITE_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
+    const supabase = getServiceClient();
+    if (!supabase) {
       return res.status(500).json({ error: 'Missing Supabase config' });
     }
-
-    const supabase = createClient(url, key, { auth: { persistSession: false } });
 
     const { data, error } = await supabase
       .from('ticket_types')
       .select('*')
       .eq('event_id', id)
-      .order('sort_order', { ascending: true });
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
 
     if (error) throw error;
-    return res.json({ tickets: data || [] });
+
+    // quantity_sold on the row is never updated by the order flow, so report the
+    // real number: quantity on live (not cancelled / refunded) orders.
+    const tiers = await Promise.all(
+      (data || []).map(async (t: any) => {
+        const { data: sold } = await supabase.rpc('ticket_type_sold', { p_type: t.id });
+        return { ...t, quantity_sold: typeof sold === 'number' ? sold : 0 };
+      }),
+    );
+
+    return res.json({ tickets: tiers });
   } catch (error: any) {
     console.error('Tickets API error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
