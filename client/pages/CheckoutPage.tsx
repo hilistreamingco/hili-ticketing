@@ -30,6 +30,9 @@ function formatPhone(raw: string) {
 
 // ─── Payment Instructions ────────────────────────────────────────────────────
 
+const DEFAULT_TILL_NUMBER = "5451657";
+const DEFAULT_TILL_NAME = "PRESTIGE CINEMA 6";
+
 function PaymentInstructions({
   config,
   amount,
@@ -37,8 +40,10 @@ function PaymentInstructions({
   config: PaymentConfig | null;
   amount: number;
 }) {
-  // Fallback to environment variable till number if config not available
-  const number = config?.number ?? "5451657";
+  // Every event uses the same till and the same steps unless an admin saves a payment
+  // config for that event. Only the tickets change from event to event.
+  const number = config?.number ?? DEFAULT_TILL_NUMBER;
+  const tillName = config ? config.till_name : DEFAULT_TILL_NAME;
   const isTill = !config || config.payment_type === "till";
   const accountRef = config?.account_number;
 
@@ -80,7 +85,7 @@ function PaymentInstructions({
           <li className="flex gap-2">
             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">4</span>
             {isTill ? (
-              <span>Enter Till Number: <strong className="font-mono text-foreground">{number}</strong>{config?.till_name ? <span className="text-muted-foreground"> ({config.till_name})</span> : null}</span>
+              <span>Enter Till Number: <strong className="font-mono text-foreground">{number}</strong>{tillName ? <span className="text-muted-foreground"> ({tillName})</span> : null}</span>
             ) : (
               <span>Enter Business Number: <strong className="font-mono text-foreground">{number}</strong></span>
             )}

@@ -12,37 +12,122 @@ function getSupabase() {
   return client as any;
 }
 
-// Prestige Stats
+// ── Prestige (BeerBirds / Prestige operations, also open to Hili admins) ────
+//
+// The flow for a manual M-Pesa order:
+//   pending  --confirm-->  confirmed (seats become sold, tickets are numbered and created)
+//   pending  --notFound--> cancelled (seats are released by a database trigger)
+//   confirmed --send-->    fulfillment_status = sent (PDF is made in the browser and emailed by hand)
+
+const DEAD_ORDER = ['cancelled', 'failed', 'not_found', 'refunded'];
+
+function eventFilter(req: any): string | null {
+  return typeof req.query.eventId === 'string' && req.query.eventId ? req.query.eventId : null;
+}
+
+async function audit(supabase: any, user: { uid: string; email: string }, orderId: string, action: string, metadata: Record<string, unknown> = {}) {
+  const { error } = await supabase.from('audit_log').insert({
+    order_id: orderId,
+    action,
+    actor_id: user.uid,
+    actor_email: user.email,
+    metadata,
+  });
+  if (error) console.error('audit_log insert failed:', error.message); // never block the action on the log
+}
+
+// Prestige Stats (optionally for one event). Returns exactly the PrestigeStats shape the
+// dashboard reads (shared/api.ts); the old version returned different field names, so the
+// "Tickets Sold" card was blank and the Finances tab crashed.
 app.get('/api/prestige/stats', async (req, res) => {
   try {
     const user = await getAuthedUser(req.headers.authorization);
     if (!canUsePrestige(user)) return res.status(401).json({ error: 'Unauthorized' });
 
     const supabase = getSupabase();
-    const { data: orders } = await supabase.from('orders').select('status, amount_kes, fulfillment_status');
-    
-    // Only count tickets from confirmed/paid orders
-    const { data: tickets } = await supabase
-      .from('tickets')
-      .select('id, order:orders!inner(status)')
-      .in('order.status', ['confirmed', 'paid']);
+    const eventId = eventFilter(req);
 
-    const confirmedOrders = orders?.filter((o: any) => o.status === 'confirmed' || o.status === 'paid') || [];
+    let ordersQuery = supabase
+      .from('orders')
+      .select('status, amount_kes, fulfillment_status, order_items(quantity, unit_price_kes, ticket_type:ticket_types(name))');
+    if (eventId) ordersQuery = ordersQuery.eq('event_id', eventId);
 
-    const stats = {
-      totalOrders: orders?.length || 0,
-      pendingOrders: orders?.filter((o: any) => o.status === 'pending' || o.status === 'processing').length || 0,
-      confirmedOrders: confirmedOrders.length,
-      sentOrders: orders?.filter((o: any) => o.fulfillment_status === 'sent').length || 0,
-      totalRevenue: confirmedOrders.reduce((sum: number, o: any) => sum + (o.amount_kes || 0), 0),
-      totalAttendees: tickets?.length || 0,
-    };
+    const { data: orders, error } = await ordersQuery;
+    if (error) throw error;
 
-    res.json(stats);
+    const rows = (orders || []) as any[];
+    const confirmed = rows.filter((o) => o.status === 'confirmed' || o.status === 'paid');
+
+    // Tickets and revenue by ticket type (seat bookings priced by seats taken have no tier)
+    const byType = new Map<string, { name: string; quantity: number; revenue: number }>();
+    let totalTicketsSold = 0;
+    for (const order of confirmed) {
+      for (const item of order.order_items || []) {
+        const name = item.ticket_type?.name || 'Seat booking';
+        const entry = byType.get(name) || { name, quantity: 0, revenue: 0 };
+        entry.quantity += item.quantity;
+        entry.revenue += item.quantity * item.unit_price_kes;
+        byType.set(name, entry);
+        totalTicketsSold += item.quantity;
+      }
+    }
+
+    res.json({
+      totalTicketsSold,
+      totalRevenue: confirmed.reduce((sum: number, o: any) => sum + (o.amount_kes || 0), 0),
+      pendingOrders: rows.filter((o) => o.status === 'pending' || o.status === 'processing').length,
+      confirmedOrders: confirmed.length,
+      sentOrders: confirmed.filter((o: any) => o.fulfillment_status === 'sent').length,
+      notFoundOrders: rows.filter((o) => o.status === 'cancelled' || o.status === 'not_found').length,
+      ticketsByType: [...byType.values()].sort((a, b) => b.revenue - a.revenue),
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Events for the dashboard's event filter (the Prestige team cannot call the Hili admin API).
+app.get('/api/prestige/events', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!canUsePrestige(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { data, error } = await getSupabase()
+      .from('events')
+      .select('id, name, slug, event_type, event_date, start_time, status, ticket_prefix')
+      .neq('status', 'draft')
+      .order('event_date', { ascending: false, nullsFirst: false });
+    if (error) throw error;
+    res.json({ events: data || [] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Creates the tickets for a confirmed order (numbering, seats and names all handled in one
+// database transaction). Safe to call twice: returns 0 the second time.
+async function createTicketsFor(supabase: any, orderId: string): Promise<number> {
+  const { data, error } = await supabase.rpc('generate_tickets_for_order', { p_order: orderId });
+  if (error) throw new Error(error.message);
+  return typeof data === 'number' ? data : 0;
+}
+
+// Cinema orders store seat ids; the dashboard needs the printable labels (A07) before tickets exist.
+async function withSeatLabels(supabase: any, orders: any[]): Promise<any[]> {
+  const ids = new Set<string>();
+  for (const o of orders) for (const item of o.order_items || []) for (const id of item.seat_ids || []) ids.add(id);
+  if (ids.size === 0) return orders;
+  const { data, error } = await supabase.from('seats').select('id, label').in('id', [...ids]);
+  if (error) throw error;
+  const labels = new Map((data || []).map((s: any) => [s.id, s.label]));
+  return orders.map((o) => ({
+    ...o,
+    order_items: (o.order_items || []).map((item: any) => ({
+      ...item,
+      seat_labels: (item.seat_ids || []).map((id: string) => labels.get(id) || ''),
+    })),
+  }));
+}
 
 // Prestige Orders (GET list or single, POST actions)
 app.all('/api/prestige/orders', async (req, res) => {
@@ -54,130 +139,100 @@ app.all('/api/prestige/orders', async (req, res) => {
 
     // POST actions
     if (req.method === 'POST') {
-      const { action, orderId, note } = req.body;
+      const { action, orderId, note } = req.body || {};
 
-      console.log('POST /api/prestige/orders', { action, orderId, note, body: req.body });
-
-      if (!action || !orderId) {
-        return res.status(400).json({ error: 'Missing action or orderId', received: { action, orderId } });
+      if (!action || !orderId || typeof orderId !== 'string') {
+        return res.status(400).json({ error: 'Missing action or orderId' });
       }
 
-      if (action === 'confirm') {
-        // Just confirm the payment - ticket generation is a separate step
-        const { data: order } = await supabase
-          .from('orders')
-          .select('status')
-          .eq('id', orderId)
-          .single();
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .select('id, status, fulfillment_status')
+        .eq('id', orderId)
+        .maybeSingle();
+      if (orderError) throw orderError;
+      if (!order) return res.status(404).json({ error: 'Order not found' });
 
-        if (!order) return res.status(404).json({ error: 'Order not found' });
-        if (order.status === 'confirmed' || order.status === 'paid') {
+      const isPending = order.status === 'pending' || order.status === 'processing';
+      const isConfirmed = order.status === 'confirmed' || order.status === 'paid';
+
+      if (action === 'confirm') {
+        if (isConfirmed) {
           return res.json({ success: true, message: 'Already confirmed' });
         }
+        // A cancelled order has already given its seats back, so it can never be confirmed again.
+        if (!isPending) {
+          return res.status(409).json({ error: `This order is ${String(order.status).replace('_', ' ')} and cannot be confirmed. Ask the customer to place a new order.` });
+        }
 
-        await supabase.from('orders').update({ status: 'confirmed' }).eq('id', orderId);
-        return res.json({ success: true, message: 'Payment confirmed' });
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ status: 'confirmed', confirmed_at: new Date().toISOString(), confirmed_by: user.uid })
+          .eq('id', orderId)
+          .in('status', ['pending', 'processing']);
+        if (updateError) throw updateError;
+        await audit(supabase, user, orderId, 'payment_confirmed');
+
+        // Number and create the tickets straight away. If this fails the order stays confirmed
+        // and the "Generate ticket(s)" button is still available.
+        try {
+          const created = await createTicketsFor(supabase, orderId);
+          await audit(supabase, user, orderId, 'tickets_generated', { created });
+          return res.json({ success: true, message: `Payment confirmed, ${created} ticket(s) created` });
+        } catch (ticketError: any) {
+          console.error('Ticket generation failed after confirm:', ticketError);
+          return res.json({ success: true, message: 'Payment confirmed, but tickets could not be created yet', ticketError: ticketError.message });
+        }
       }
 
       if (action === 'generateTickets') {
-        const { data: order, error: orderError } = await supabase
-          .from('orders')
-          .select('*, order_items(*), event:events(*)')
-          .eq('id', orderId)
-          .single();
-
-        if (orderError || !order) return res.status(404).json({ error: 'Order not found' });
-
-        // Check if tickets already exist
-        const { data: existingTickets } = await supabase
-          .from('tickets')
-          .select('id')
-          .eq('order_id', orderId);
-
-        if (existingTickets && existingTickets.length > 0) {
-          return res.json({ success: true, message: 'Tickets already generated' });
+        if (!isConfirmed) {
+          return res.status(409).json({ error: 'Confirm the payment before creating tickets.' });
         }
-
-        // Get max ticket number across all tickets
-        const { data: allTickets } = await supabase
-          .from('tickets')
-          .select('ticket_number');
-
-        let nextNumber = 1;
-        if (allTickets && allTickets.length > 0) {
-          const maxNum = allTickets.reduce((max: number, t: any) => {
-            const match = t.ticket_number?.match(/(\d+)$/);
-            const num = match ? parseInt(match[1]) : 0;
-            return Math.max(max, num);
-          }, 0);
-          nextNumber = maxNum + 1;
-        }
-
-        const items = order.order_items || [];
-        const ticketsToInsert: any[] = [];
-
-        if (items.length === 0) {
-          ticketsToInsert.push({
-            order_id: order.id,
-            event_id: order.event_id,
-            ticket_type_id: null,
-            attendee_name: order.purchaser_name,
-            attendee_index: 0,
-            ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
-          });
-        } else {
-          for (const item of items) {
-            const qty = item.quantity || 1;
-            for (let idx = 0; idx < qty; idx++) {
-              ticketsToInsert.push({
-                order_id: order.id,
-                event_id: order.event_id,
-                ticket_type_id: item.ticket_type_id,
-                attendee_name: item.attendee_names?.[idx] || order.purchaser_name,
-                attendee_index: idx,
-                ticket_number: `SBTB${String(nextNumber++).padStart(3, '0')}`,
-              });
-            }
-          }
-        }
-
-        const { error: ticketError } = await supabase
-          .from('tickets')
-          .upsert(ticketsToInsert, { onConflict: 'order_id,ticket_type_id,attendee_index', ignoreDuplicates: true });
-
-        if (ticketError) {
+        try {
+          const created = await createTicketsFor(supabase, orderId);
+          if (created > 0) await audit(supabase, user, orderId, 'tickets_generated', { created });
+          return res.json({ success: true, message: created ? `${created} ticket(s) generated` : 'Tickets already generated' });
+        } catch (ticketError: any) {
           console.error('Ticket insert error:', ticketError);
           return res.status(500).json({ error: 'Failed to generate tickets', detail: ticketError.message });
         }
-
-        return res.json({ success: true, message: `${ticketsToInsert.length} ticket(s) generated` });
       }
 
       if (action === 'send') {
-        // Just mark as sent - no ticket check needed, PDF was already generated client-side
-        const { error: updateError } = await supabase.from('orders').update({
-          fulfillment_status: 'sent',
-        }).eq('id', orderId);
-
+        // The PDF was already made in the browser; this records that it went out.
+        if (!isConfirmed) {
+          return res.status(409).json({ error: 'Only confirmed orders can be marked as sent.' });
+        }
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ fulfillment_status: 'sent', sent_at: new Date().toISOString(), sent_by: user.uid })
+          .eq('id', orderId);
         if (updateError) {
           console.error('Update error:', updateError);
           return res.status(500).json({ error: 'Failed to update order' });
         }
-
+        await audit(supabase, user, orderId, 'tickets_sent');
         return res.json({ success: true, message: 'Marked as sent' });
       }
 
       if (action === 'notFound') {
-        const { error: updateError } = await supabase.from('orders').update({
-          status: 'cancelled',
-        }).eq('id', orderId);
-
+        if (!isPending) {
+          return res.status(409).json({ error: 'Only orders waiting for payment verification can be cancelled here.' });
+        }
+        const cleanNote = typeof note === 'string' && note.trim() ? note.trim().slice(0, 500) : null;
+        // Cancelling frees the seats (database trigger) so someone else can buy them.
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ status: 'cancelled', payment_note: cleanNote })
+          .eq('id', orderId)
+          .in('status', ['pending', 'processing']);
         if (updateError) {
           console.error('notFound update error:', updateError);
           return res.status(500).json({ error: 'Failed to update order' });
         }
-
-        return res.json({ success: true, message: 'Marked not found' });
+        await audit(supabase, user, orderId, 'payment_not_found', { note: cleanNote });
+        return res.json({ success: true, message: 'Order cancelled and seats released' });
       }
 
       return res.status(400).json({ error: 'Invalid action' });
@@ -193,26 +248,60 @@ app.all('/api/prestige/orders', async (req, res) => {
         .single();
 
       if (error) return res.status(404).json({ error: 'Not found' });
-      // Map order_items to items for frontend compatibility
-      const mapped = { ...order, items: order.order_items || [] };
+      // Map order_items to items for frontend compatibility; tickets in seat / number order
+      const tickets = (order.tickets || []).slice().sort((a: any, b: any) =>
+        String(a.ticket_number).localeCompare(String(b.ticket_number), undefined, { numeric: true }));
+      const [labelled] = await withSeatLabels(supabase, [order]);
+      const mapped = { ...labelled, tickets, items: labelled.order_items || [] };
       return res.json({ order: mapped });
     }
 
     // GET list
     const { status, fulfillment } = req.query;
-    let query = supabase.from('orders').select('*, order_items(*, ticket_type:ticket_types(*)), event:events(name)').order('created_at', { ascending: false });
+    const eventId = eventFilter(req);
+    let query = supabase
+      .from('orders')
+      .select('*, order_items(*, ticket_type:ticket_types(*)), event:events(name, event_type)')
+      .order('created_at', { ascending: false });
 
+    if (eventId) query = query.eq('event_id', eventId);
     if (status === 'pending') query = query.in('status', ['pending', 'processing']);
     else if (status === 'confirmed') {
       query = query.in('status', ['confirmed', 'paid']);
       if (fulfillment) query = query.eq('fulfillment_status', fulfillment);
     }
     else if (status === 'sent') query = query.in('status', ['confirmed', 'paid']).eq('fulfillment_status', 'sent');
+    else query = query.not('status', 'in', `(${DEAD_ORDER.join(',')})`); // "all" hides cancelled orders
 
-    const { data: orders } = await query;
+    const { data: orders, error: listError } = await query;
+    if (listError) throw listError;
     // Map order_items to items for each order
-    const mappedOrders = (orders || []).map((o: any) => ({ ...o, items: o.order_items || [] }));
+    const mappedOrders = (await withSeatLabels(supabase, orders || [])).map((o: any) => ({ ...o, items: o.order_items || [] }));
     res.json({ orders: mappedOrders });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Attendees: one row per ticket (name, seat, ticket number) for confirmed orders.
+app.get('/api/prestige/attendees', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!canUsePrestige(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const supabase = getSupabase();
+    const eventId = eventFilter(req);
+    let query = supabase
+      .from('tickets')
+      .select('id, ticket_number, attendee_name, seat_label, checked_in_at, created_at, event:events(name, event_type), ticket_type:ticket_types(name), order:orders!inner(id, order_number, status, purchaser_name, purchaser_phone, purchaser_email, fulfillment_status)')
+      .in('order.status', ['confirmed', 'paid'])
+      .order('created_at', { ascending: true })
+      .limit(3000);
+    if (eventId) query = query.eq('event_id', eventId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ tickets: data || [] });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

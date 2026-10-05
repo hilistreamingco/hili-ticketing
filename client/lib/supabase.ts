@@ -427,6 +427,8 @@ async function prestigePut<T>(path: string, body: unknown): Promise<T> {
 
 import type {
   Order,
+  PrestigeAttendee,
+  PrestigeEvent,
   PrestigeStats,
   PaymentConfig,
   ConfirmPaymentResponse,
@@ -434,16 +436,33 @@ import type {
   UpsertPaymentConfigRequest,
 } from "@shared/api";
 
-export async function fetchPrestigeStats(): Promise<PrestigeStats> {
-  return prestigeGet<PrestigeStats>("/api/prestige/stats");
+function eventQuery(eventId?: string) {
+  return eventId ? `eventId=${encodeURIComponent(eventId)}` : "";
+}
+
+export async function fetchPrestigeStats(eventId?: string): Promise<PrestigeStats> {
+  const q = eventQuery(eventId);
+  return prestigeGet<PrestigeStats>(`/api/prestige/stats${q ? `?${q}` : ""}`);
 }
 
 export async function fetchPrestigeOrders(
   status?: "pending" | "confirmed" | "sent" | "all",
+  eventId?: string,
 ): Promise<Order[]> {
-  const qs = status && status !== "all" ? `?status=${status}` : "";
-  const data = await prestigeGet<{ orders: Order[] }>(`/api/prestige/orders${qs}`);
+  const parts = [status && status !== "all" ? `status=${status}` : "", eventQuery(eventId)].filter(Boolean);
+  const data = await prestigeGet<{ orders: Order[] }>(`/api/prestige/orders${parts.length ? `?${parts.join("&")}` : ""}`);
   return data.orders;
+}
+
+export async function fetchPrestigeAttendees(eventId?: string): Promise<PrestigeAttendee[]> {
+  const q = eventQuery(eventId);
+  const data = await prestigeGet<{ tickets: PrestigeAttendee[] }>(`/api/prestige/attendees${q ? `?${q}` : ""}`);
+  return data.tickets;
+}
+
+export async function fetchPrestigeEvents(): Promise<PrestigeEvent[]> {
+  const data = await prestigeGet<{ events: PrestigeEvent[] }>("/api/prestige/events");
+  return data.events;
 }
 
 export async function fetchPrestigeOrder(orderId: string): Promise<Order> {

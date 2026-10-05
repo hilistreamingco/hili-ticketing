@@ -28,6 +28,8 @@ import {
   fetchPrestigeStats,
   fetchPrestigeOrders,
   fetchPrestigeOrder,
+  fetchPrestigeAttendees,
+  fetchPrestigeEvents,
   confirmPrestigePayment,
   markPrestigeNotFound,
   sendPrestigeTicket,
@@ -36,7 +38,7 @@ import {
   getCurrentUserRole,
   isPrestigeRole,
 } from "@/lib/supabase";
-import type { Order, PrestigeStats } from "@shared/api";
+import type { Order, PrestigeAttendee, PrestigeEvent, PrestigeStats } from "@shared/api";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +56,22 @@ function formatDate(iso: string) {
   });
 }
 
+/** Name of what was bought: the tier, or "Cinema seats" for seat bookings without a tier. */
+function itemName(order: Order): string {
+  return order.items?.[0]?.ticket_type?.name ?? (order.event?.event_type === "cinema" ? "Cinema seats" : "Ticket");
+}
+
+/** Seats on an order (A07, A08...), for cinema bookings. */
+function orderSeats(order: Order): string[] {
+  return (order.items ?? []).flatMap((i) => i.seat_labels ?? []).filter(Boolean);
+}
+
+/** "A07" -> sortable number: row letter first, then seat number. */
+function seatSortKey(label: string | null | undefined): [string, number] {
+  const m = /^([A-Za-z]+)(\d+)$/.exec(label || "");
+  return m ? [m[1], parseInt(m[2], 10)] : ["~", 0];
+}
+
 function StatusBadge({ status }: { status: string }) {
   const variants: Record<string, string> = {
     pending: "bg-amber-100 text-amber-800 border-amber-200",
@@ -62,6 +80,7 @@ function StatusBadge({ status }: { status: string }) {
     paid: "bg-green-100 text-green-800 border-green-200",
     sent: "bg-blue-100 text-blue-800 border-blue-200",
     not_found: "bg-red-100 text-red-800 border-red-200",
+    cancelled: "bg-red-100 text-red-800 border-red-200",
     failed: "bg-red-100 text-red-800 border-red-200",
     refunded: "bg-gray-100 text-gray-700 border-gray-200",
   };
@@ -72,6 +91,7 @@ function StatusBadge({ status }: { status: string }) {
     paid: "Confirmed",
     sent: "Sent",
     not_found: "Not Found",
+    cancelled: "Cancelled",
     failed: "Failed",
     refunded: "Refunded",
   };
@@ -135,17 +155,22 @@ function OrderRow({
   order: Order;
   onView: (order: Order) => void;
 }) {
-  const ticketName = order.items?.[0]?.ticket_type_name ?? "Ticket";
+  const ticketName = itemName(order);
   const qty = order.items?.reduce((s, i) => s + i.quantity, 0) ?? 1;
+  const seats = orderSeats(order);
   return (
     <tr className="border-b border-white/8 transition-colors hover:bg-white/5">
-      <td className="p-4 font-mono text-xs font-semibold text-[#c1ff1a]">{order.order_number}</td>
+      <td className="p-4">
+        <p className="font-mono text-xs font-semibold text-[#c1ff1a]">{order.order_number}</p>
+        {order.event?.name && <p className="mt-0.5 max-w-[160px] truncate text-[11px] text-white/40">{order.event.name}</p>}
+      </td>
       <td className="p-4">
         <p className="font-semibold text-white">{order.purchaser_name}</p>
         <p className="text-xs text-white/50">{order.purchaser_phone}</p>
       </td>
       <td className="hidden p-4 text-sm text-white/70 md:table-cell">
         {ticketName} × {qty}
+        {seats.length > 0 && <p className="mt-0.5 font-mono text-xs text-[#c1ff1a]">{seats.join(", ")}</p>}
       </td>
       <td className="hidden p-4 text-sm font-semibold text-white lg:table-cell">
         {formatKes(order.amount_kes)}
@@ -213,8 +238,12 @@ function OrderModal({
     setActionState("confirming");
     setShowConfirmDialog(false);
     try {
-      await confirmPrestigePayment(order.id);
-      showToast("Payment confirmed and tickets generated", "success");
+      const result = await confirmPrestigePayment(order.id);
+      if (result.ticketError) {
+        showToast("Payment confirmed, but the tickets could not be created yet. Press “Generate Ticket(s)”.", "error");
+      } else {
+        showToast(result.message || "Payment confirmed", "success");
+      }
       await load();
       onRefresh();
     } catch (err) {
@@ -243,19 +272,33 @@ function OrderModal({
   const handleSend = async () => {
     if (!order) return;
 
-    // Open Gmail window IMMEDIATELY while we still have user gesture context
+    // Open Gmail IMMEDIATELY while we still have the user's click
     // (browsers block window.open in async callbacks)
+    const { gmailComposeUrl, ticketEmailBody, ticketEmailSubject } = await import("@/lib/ticketGenerator");
     const eventName = order.event?.name || "Event";
-    const subject = encodeURIComponent(`Your "${eventName}" Tickets`);
-    const body = encodeURIComponent(
-      `Hey ${order.purchaser_name},\n\nThank you for trusting HILI X BEERBIRDS!\n\nYour tickets for ${eventName} are attached to this email.\n\nSee you at the event!\n\n- HILI Team`
+    const gmailWindow = window.open(
+      gmailComposeUrl(
+        order.purchaser_email,
+        ticketEmailSubject(eventName),
+        ticketEmailBody({
+          purchaserName: order.purchaser_name,
+          eventName,
+          eventDate: order.event?.event_date,
+          startTime: order.event?.start_time,
+          venue: order.event?.venue,
+          tickets: (order.tickets ?? []).map((t) => ({
+            ticketNumber: t.ticket_number,
+            attendeeName: t.attendee_name,
+            seatLabel: t.seat_label,
+          })),
+        }),
+      ),
+      "_blank",
     );
-    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(order.purchaser_email)}&su=${subject}&body=${body}`;
-    const gmailWindow = window.open(gmailUrl, '_blank');
 
     setActionState("sending");
     try {
-      // Reload order to get latest tickets
+      // Reload order to get the latest tickets
       const fresh = await fetchPrestigeOrder(order.id);
       setOrder(fresh);
 
@@ -266,38 +309,40 @@ function OrderModal({
         return;
       }
 
-      const { generateTicketPDF } = await import("@/lib/ticketGenerator");
+      const { generateTicketPDF, ticketFilename } = await import("@/lib/ticketGenerator");
 
-      const ticketData = fresh.tickets.map((ticket: any) => ({
-        ticketNumber: ticket.ticket_number,
-        attendeeName: ticket.attendee_name,
-        eventName: fresh.event?.name || "Event",
-        ticketType: ticket.ticket_type?.name || fresh.items?.[0]?.ticket_type_name || "Advance",
-        eventDate: fresh.event?.event_date
-          ? new Date(fresh.event.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase()
-          : undefined,
-        eventVenue: fresh.event?.venue || undefined,
-        orderId: fresh.id.slice(0, 28),
-      }));
-
-      const pdfBlob = await generateTicketPDF(ticketData);
+      const pdfBlob = await generateTicketPDF(
+        fresh.tickets.map((ticket) => ({
+          ticketNumber: ticket.ticket_number,
+          attendeeName: ticket.attendee_name,
+          eventName: fresh.event?.name || "Event",
+          ticketType: ticket.ticket_type?.name || (ticket.seat_label ? "" : itemName(fresh)),
+          eventDate: fresh.event?.event_date,
+          startTime: fresh.event?.start_time,
+          venue: fresh.event?.venue,
+          city: fresh.event?.city,
+          seatLabel: ticket.seat_label,
+          qrToken: ticket.qr_token,
+          orderNumber: fresh.order_number,
+          purchaserName: fresh.purchaser_name,
+        })),
+      );
 
       // Download PDF
-      const ticketNumbers = ticketData.map((t: any) => t.ticketNumber).join('-');
-      const sanitizedName = fresh.purchaser_name.replace(/[^a-zA-Z0-9]/g, '');
       const url = URL.createObjectURL(pdfBlob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      a.download = `${sanitizedName}-${ticketNumbers}.pdf`;
+      a.download = ticketFilename(fresh.event?.name || "Event", fresh.order_number);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 2000);
 
-      showToast("PDF downloaded & Gmail opened — attach PDF and send!", "success");
+      showToast("PDF downloaded & Gmail opened — attach the PDF, send, then press “Mark as Sent”.", "success");
       onRefresh();
     } catch (err) {
       console.error("Send ticket error:", err);
+      gmailWindow?.close();
       showToast(err instanceof Error ? err.message : "Could not generate tickets", "error");
     } finally {
       setActionState("idle");
@@ -322,8 +367,10 @@ function OrderModal({
   const isPending = order && (order.status === "pending" || order.status === "processing");
   const isConfirmed = order && (order.status === "confirmed" || order.status === "paid");
   const isSent = order?.fulfillment_status === "sent";
-  const ticketName = order?.items?.[0]?.ticket_type_name ?? "Ticket";
+  const ticketName = order ? itemName(order) : "Ticket";
   const qty = order?.items?.reduce((s, i) => s + i.quantity, 0) ?? 1;
+  const seatLabels = order ? orderSeats(order) : [];
+  const attendeeNames = order?.items?.flatMap((i) => i.attendee_names ?? []) ?? [];
 
   return (
     <div
@@ -389,6 +436,10 @@ function OrderModal({
             <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <p className="mb-3 text-xs uppercase tracking-widest text-white/40">Ticket</p>
               <div className="space-y-2 text-sm">
+                <Row label="Event" value={order.event?.name || "—"} highlight />
+                {order.event?.event_date && (
+                  <Row label="Date" value={`${order.event.event_date}${order.event.start_time ? ` · ${order.event.start_time.slice(0, 5)}` : ""}`} />
+                )}
                 <Row label="Type" value={ticketName} />
                 <Row label="Quantity" value={String(qty)} />
                 <Row label="Amount" value={formatKes(order.amount_kes)} highlight />
@@ -398,9 +449,9 @@ function OrderModal({
                 <div className="mt-3">
                   <p className="text-xs text-white/40">Generated Tickets</p>
                   <ul className="mt-1 space-y-0.5 text-sm">
-                    {order.tickets.map((t: any, i: number) => (
+                    {order.tickets.map((t, i) => (
                       <li key={i} className="font-mono text-[#c1ff1a]">
-                        {t.ticket_number} — {t.attendee_name}
+                        {t.ticket_number}{t.seat_label ? ` · Seat ${t.seat_label}` : ""} — {t.attendee_name}
                       </li>
                     ))}
                   </ul>
@@ -409,13 +460,13 @@ function OrderModal({
               {order.tickets && order.tickets.length === 0 && (order.status === 'confirmed' || order.status === 'paid') && (
                 <p className="mt-2 text-xs text-red-400">⚠ No tickets generated yet</p>
               )}
-              {order.items?.[0]?.attendee_names?.length ? (
+              {attendeeNames.length > 0 && (!order.tickets || order.tickets.length === 0) ? (
                 <div className="mt-3">
-                  <p className="text-xs text-white/40">Attendees</p>
+                  <p className="text-xs text-white/40">{seatLabels.length ? "Seats and attendees" : "Attendees"}</p>
                   <ul className="mt-1 space-y-0.5 text-sm">
-                    {order.items[0].attendee_names.map((n, i) => (
+                    {attendeeNames.map((n, i) => (
                       <li key={i} className="text-white/80">
-                        {i + 1}. {n}
+                        {seatLabels[i] ? <span className="mr-2 font-mono text-[#c1ff1a]">{seatLabels[i]}</span> : `${i + 1}. `}{n}
                       </li>
                     ))}
                   </ul>
@@ -511,7 +562,7 @@ function OrderModal({
                           await load();
                           onRefresh();
                         } catch (err) {
-                          showToast("Could not generate tickets", "error");
+                          showToast(err instanceof Error ? err.message : "Could not generate tickets", "error");
                         } finally {
                           setActionState("idle");
                         }
@@ -698,6 +749,11 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [events, setEvents] = useState<PrestigeEvent[]>([]);
+  const [eventId, setEventId] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => { fetchPrestigeEvents().then(setEvents).catch(() => undefined); }, []);
 
   // Auto-logout after 30 minutes of inactivity
   useEffect(() => {
@@ -726,29 +782,36 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       if (!silent) setLoading(true);
       else setRefreshing(true);
       try {
+        const filter = eventId || undefined;
         const [s, o] = await Promise.all([
-          fetchPrestigeStats(),
+          fetchPrestigeStats(filter),
           fetchPrestigeOrders(
-            tab === "overview" ? "all" : (tab as "pending" | "confirmed" | "sent"),
+            tab === "overview" || tab === "finances" ? "all" : tab === "attendees" ? "confirmed" : (tab as "pending" | "confirmed" | "sent"),
+            filter,
           ),
         ]);
         setStats(s);
         setOrders(o);
-      } catch {
-        // silently fail — stats/orders just won't update
+        setLoadError(null);
+      } catch (err) {
+        // Say so instead of silently showing old numbers
+        setLoadError(err instanceof Error ? err.message : "Could not load orders");
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [tab],
+    [tab, eventId],
   );
 
   useEffect(() => { void loadData(); }, [loadData]);
 
+  // New orders appear without pressing refresh. (The orders table is not broadcast over realtime,
+  // so the old subscription never fired; a 30 second poll is what actually works.)
   useEffect(() => {
+    const timer = setInterval(() => void loadData(true), 30_000);
     const unsub = subscribeToPrestigeOrders(() => void loadData(true));
-    return unsub;
+    return () => { clearInterval(timer); unsub(); };
   }, [loadData]);
 
   const filteredOrders = orders.filter((o) => {
@@ -831,9 +894,20 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            <select
+              value={eventId}
+              onChange={(e) => { setEventId(e.target.value); setSearch(""); }}
+              className="h-9 max-w-[200px] rounded-xl border border-white/15 bg-[#161616] px-3 text-xs text-white"
+              aria-label="Filter by event"
+            >
+              <option value="">All events</option>
+              {events.map((ev) => (
+                <option key={ev.id} value={ev.id}>{ev.name}{ev.event_date ? ` · ${ev.event_date}` : ""}</option>
+              ))}
+            </select>
             {/* Mobile nav */}
             <div className="flex gap-1 lg:hidden">
-              {navItems.slice(0, 4).map(({ id, icon: Icon }) => (
+              {navItems.map(({ id, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => setTab(id)}
@@ -854,6 +928,12 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         </header>
 
         <div className="p-5 sm:p-10">
+          {loadError && (
+            <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              <span>{loadError}</span>
+              <Button size="sm" variant="outline" className="border-red-400/40 text-red-200 hover:bg-red-500/20" onClick={() => void loadData()}>Retry</Button>
+            </div>
+          )}
           {loading ? (
             <div className="flex h-64 items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-white/30" />
@@ -881,10 +961,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
               )}
               {tab === "attendees" && (
                 <AttendeesTab
-                  orders={orders}
+                  eventId={eventId}
                   search={search}
                   onSearch={setSearch}
-                  onView={(o) => setSelectedOrderId(o.id)}
+                  onViewOrder={(id) => setSelectedOrderId(id)}
                 />
               )}
               {tab === "finances" && stats && <FinancesTab stats={stats} orders={orders} />}
@@ -1057,78 +1137,135 @@ function OrdersTab({
 // ── Attendees tab ─────────────────────────────────────────────────────────────
 
 function AttendeesTab({
-  orders,
+  eventId,
   search,
   onSearch,
-  onView,
+  onViewOrder,
 }: {
-  orders: Order[];
+  eventId: string;
   search: string;
   onSearch: (v: string) => void;
-  onView: (o: Order) => void;
+  onViewOrder: (orderId: string) => void;
 }) {
+  const [rows, setRows] = useState<PrestigeAttendee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetchPrestigeAttendees(eventId || undefined)
+      .then((r) => { if (active) { setRows(r); setError(null); } })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Could not load attendees"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [eventId]);
+
+  // Cinema tickets in seat order (row, then number); everything else in the order it was bought
+  const sorted = [...rows].sort((a, b) => {
+    const ev = (a.event?.name ?? "").localeCompare(b.event?.name ?? "");
+    if (ev !== 0) return ev;
+    if (a.seat_label || b.seat_label) {
+      const [ra, na] = seatSortKey(a.seat_label);
+      const [rb, nb] = seatSortKey(b.seat_label);
+      return ra.localeCompare(rb) || na - nb;
+    }
+    return a.created_at.localeCompare(b.created_at);
+  });
+
   const q = search.toLowerCase();
-  const filtered = orders.filter(
-    (o) =>
+  const filtered = sorted.filter(
+    (t) =>
       !q ||
-      o.purchaser_name.toLowerCase().includes(q) ||
-      o.purchaser_phone.includes(q) ||
-      o.purchaser_email.toLowerCase().includes(q) ||
-      o.order_number.toLowerCase().includes(q),
+      t.attendee_name.toLowerCase().includes(q) ||
+      t.ticket_number.toLowerCase().includes(q) ||
+      (t.seat_label ?? "").toLowerCase().includes(q) ||
+      t.order.purchaser_name.toLowerCase().includes(q) ||
+      t.order.order_number.toLowerCase().includes(q) ||
+      t.order.purchaser_phone.includes(q),
   );
+
+  const downloadCsv = () => {
+    const cell = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const csv = [
+      ["Event", "Seat", "Attendee", "Ticket", "Type", "Booked by", "Phone", "Order", "Checked in"].join(","),
+      ...filtered.map((t) => [
+        cell(t.event?.name ?? ""), t.seat_label ?? "", cell(t.attendee_name), t.ticket_number,
+        cell(t.ticket_type?.name ?? ""), cell(t.order.purchaser_name), t.order.purchaser_phone,
+        t.order.order_number, t.checked_in_at ? "yes" : "no",
+      ].join(",")),
+    ].join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `attendees-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div>
-      <Input
-        className="mb-5 border-white/15 bg-white/5 text-white placeholder:text-white/30 focus-visible:border-[#c1ff1a]"
-        placeholder="Search by name, phone, email or order number…"
-        value={search}
-        onChange={(e) => onSearch(e.target.value)}
-      />
-      <div className="overflow-hidden rounded-2xl border border-white/8">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-white/8 text-xs uppercase tracking-wider text-white/35">
-            <tr>
-              <th className="p-4">Attendee</th>
-              <th className="p-4">Contact</th>
-              <th className="hidden p-4 md:table-cell">Order</th>
-              <th className="p-4">Payment</th>
-              <th className="p-4">Ticket</th>
-              <th className="p-4" />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((o) => (
-              <tr key={o.id} className="border-b border-white/8 hover:bg-white/5">
-                <td className="p-4 font-semibold text-white">{o.purchaser_name}</td>
-                <td className="p-4 text-white/60">
-                  <p>{o.purchaser_phone}</p>
-                  <p className="text-xs">{o.purchaser_email}</p>
-                </td>
-                <td className="hidden p-4 font-mono text-xs text-[#c1ff1a] md:table-cell">
-                  {o.order_number}
-                </td>
-                <td className="p-4">
-                  <StatusBadge status={o.status} />
-                </td>
-                <td className="p-4">
-                  <FulfillmentBadge status={o.fulfillment_status} />
-                </td>
-                <td className="p-4">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onView(o)}
-                    className="text-white/50 hover:bg-white/10 hover:text-white"
-                  >
-                    View
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="mb-5 flex gap-3">
+        <Input
+          className="border-white/15 bg-white/5 text-white placeholder:text-white/30 focus-visible:border-[#c1ff1a]"
+          placeholder="Search by attendee, seat, ticket #, buyer or order number…"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+        />
+        <Button variant="outline" className="shrink-0 border-white/20 text-white hover:bg-white/10" onClick={downloadCsv} disabled={filtered.length === 0}>
+          <Download className="mr-2 h-4 w-4" /> CSV
+        </Button>
       </div>
+      <p className="mb-3 text-xs text-white/40">{filtered.length} ticket{filtered.length === 1 ? "" : "s"} from confirmed orders</p>
+      {error && <p className="mb-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p>}
+      {loading ? (
+        <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-white/30" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-3xl border border-white/8 bg-white/3 py-16 text-center">
+          <Users className="h-10 w-10 text-white/20" />
+          <p className="mt-4 font-display text-lg font-bold text-white">No attendees yet</p>
+          <p className="mt-2 text-sm text-white/40">Tickets appear here once a payment is confirmed.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-white/8">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-white/8 text-xs uppercase tracking-wider text-white/35">
+              <tr>
+                <th className="p-4">Seat</th>
+                <th className="p-4">Attendee</th>
+                <th className="p-4">Ticket</th>
+                <th className="hidden p-4 md:table-cell">Booked by</th>
+                <th className="hidden p-4 lg:table-cell">Event</th>
+                <th className="p-4">Sent</th>
+                <th className="p-4" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((t) => (
+                <tr key={t.id} className="border-b border-white/8 hover:bg-white/5">
+                  <td className="p-4 font-mono text-sm font-bold text-[#c1ff1a]">{t.seat_label ?? "—"}</td>
+                  <td className="p-4 font-semibold text-white">{t.attendee_name}</td>
+                  <td className="p-4 font-mono text-xs text-white/70">
+                    {t.ticket_number}
+                    {t.ticket_type?.name && <p className="font-sans text-[11px] text-white/40">{t.ticket_type.name}</p>}
+                  </td>
+                  <td className="hidden p-4 text-white/60 md:table-cell">
+                    <p>{t.order.purchaser_name}</p>
+                    <p className="text-xs text-white/40">{t.order.purchaser_phone}</p>
+                  </td>
+                  <td className="hidden p-4 text-xs text-white/50 lg:table-cell">{t.event?.name ?? "—"}</td>
+                  <td className="p-4"><FulfillmentBadge status={t.order.fulfillment_status} /></td>
+                  <td className="p-4">
+                    <Button variant="ghost" size="sm" onClick={() => onViewOrder(t.order.id)} className="text-white/50 hover:bg-white/10 hover:text-white">
+                      Order
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1198,17 +1335,20 @@ function FinancesTab({ stats, orders }: { stats: PrestigeStats; orders: Order[] 
           className="border-white/20 text-white hover:bg-white/10"
           onClick={() => {
             const csv = [
-              ["Order", "Customer", "Phone", "Email", "Ticket", "Quantity", "Amount", "Status", "Ticket Status", "Date"].join(","),
+              ["Order", "Event", "Customer", "Phone", "Email", "Ticket", "Seats", "Quantity", "Amount", "Status", "Ticket Status", "M-Pesa code", "Date"].join(","),
               ...orders.map((o) => [
                 o.order_number,
-                `"${o.purchaser_name}"`,
+                `"${(o.event?.name ?? "").replace(/"/g, '""')}"`,
+                `"${o.purchaser_name.replace(/"/g, '""')}"`,
                 o.purchaser_phone,
                 o.purchaser_email,
-                `"${o.items?.[0]?.ticket_type_name ?? "Ticket"}"`,
+                `"${itemName(o)}"`,
+                `"${orderSeats(o).join(" ")}"`,
                 String(o.items?.reduce((s, i) => s + i.quantity, 0) ?? 1),
                 String(o.amount_kes),
                 o.status,
                 o.fulfillment_status,
+                o.mpesa_transaction_code ?? "",
                 new Date(o.created_at).toLocaleDateString("en-KE"),
               ].join(","))
             ].join("\n");

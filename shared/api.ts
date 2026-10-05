@@ -36,11 +36,16 @@ export type PaymentProvider = "manual" | "daraja" | "pesapal";
 // ── Order types ────────────────────────────────────────────────────────────
 export interface OrderItem {
   id: string;
-  ticket_type_id: string;
-  ticket_type_name?: string;
+  /** null for cinema seats priced by seats taken (no tier) */
+  ticket_type_id: string | null;
+  ticket_type?: { name: string } | null;
   quantity: number;
   unit_price_kes: number;
   attendee_names: string[];
+  /** seat ids in the same order as attendee_names (cinema orders) */
+  seat_ids?: string[];
+  /** printable seat labels (A07...) in the same order, filled in by the server */
+  seat_labels?: string[];
 }
 
 export interface Order {
@@ -49,10 +54,15 @@ export interface Order {
   event_id: string;
   event_name?: string;
   event?: {
-    id: string;
+    id?: string;
     name: string;
+    slug?: string;
     venue?: string;
+    address?: string;
+    city?: string;
     event_date?: string;
+    start_time?: string;
+    event_type?: "general" | "cinema";
   };
   purchaser_name: string;
   purchaser_email: string;
@@ -72,12 +82,49 @@ export interface Order {
   created_at: string;
   paid_at: string | null;
   items?: OrderItem[];
-  tickets?: Array<{
+  tickets?: OrderTicket[];
+}
+
+export interface OrderTicket {
+  id: string;
+  ticket_number: string;
+  attendee_name: string;
+  qr_token?: string;
+  seat_label?: string | null;
+  checked_in_at?: string | null;
+  ticket_type?: { name: string } | null;
+}
+
+/** One row of the Prestige attendee list: a single ticket with its order. */
+export interface PrestigeAttendee {
+  id: string;
+  ticket_number: string;
+  attendee_name: string;
+  seat_label: string | null;
+  checked_in_at: string | null;
+  created_at: string;
+  event: { name: string; event_type: "general" | "cinema" } | null;
+  ticket_type: { name: string } | null;
+  order: {
     id: string;
-    ticket_number: string;
-    attendee_name: string;
-    ticket_type?: { name: string };
-  }>;
+    order_number: string;
+    status: string;
+    purchaser_name: string;
+    purchaser_phone: string;
+    purchaser_email: string;
+    fulfillment_status: string;
+  };
+}
+
+export interface PrestigeEvent {
+  id: string;
+  name: string;
+  slug: string;
+  event_type: "general" | "cinema";
+  event_date: string | null;
+  start_time: string | null;
+  status: string;
+  ticket_prefix: string | null;
 }
 
 // ── Manual order creation ──────────────────────────────────────────────────
@@ -155,6 +202,8 @@ export interface ConfirmPaymentRequest {
 export interface ConfirmPaymentResponse {
   success: boolean;
   message: string;
+  /** set when the payment was confirmed but the tickets could not be created yet */
+  ticketError?: string;
 }
 
 export interface MarkNotFoundRequest {
