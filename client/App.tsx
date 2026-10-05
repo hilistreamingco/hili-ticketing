@@ -76,7 +76,7 @@ function EventsPage() {
 }
 
 function App() {
-  return <QueryClientProvider client={queryClient}><TooltipProvider><Toaster /><Sonner /><BrowserRouter><ScrollToTop /><Routes>
+  return <><QueryClientProvider client={queryClient}><TooltipProvider><Toaster /><Sonner /><BrowserRouter><ScrollToTop /><Routes>
     <Route path="/" element={<Index />} />
     <Route path="/events" element={<EventsPage />} />
     <Route path="/events/:slug" element={<EventPage />} />
@@ -96,7 +96,7 @@ function App() {
     <Route path="/admin/attendees" element={<PlaceholderPage title="Attendees" description="Search, filter, and manage your event attendees." icon={Users} />} />
     <Route path="/admin/prestige" element={<PrestigePage />} />
     <Route path="*" element={<NotFound />} />
-  </Routes></BrowserRouter></TooltipProvider></QueryClientProvider><Analytics />;
+  </Routes></BrowserRouter></TooltipProvider></QueryClientProvider><Analytics /></>;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
