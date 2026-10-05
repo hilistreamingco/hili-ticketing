@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import Layout from "@/components/layout/Layout";
 import PlaceholderPage from "@/components/PlaceholderPage";
-import { formatEventDate, formatEventTime, getEventBySlug, subscribeToEvents, startingPrice, type HiliEvent } from "@/lib/events";
+import { formatEventDate, formatEventTime, getEventBySlug, salesStatus, subscribeToEvents, startingPrice, type HiliEvent } from "@/lib/events";
+import { formatNairobi } from "@/lib/time";
 
 export default function EventPage() {
   const { slug } = useParams();
@@ -40,6 +41,10 @@ export default function EventPage() {
   if (!event) {
     return <PlaceholderPage title="Event not found" description="This event may have ended or the link may be incorrect." />;
   }
+
+  const sales = salesStatus(event);
+  const isCinema = event.eventType === "cinema";
+  const buyPath = isCinema ? `/seats/${event.slug}` : `/tickets/${event.slug}`;
 
   const themeVars = {
     "--event-primary": event.theme.primary,
@@ -125,16 +130,31 @@ export default function EventPage() {
               <div className="flex items-center gap-3">
                 <Ticket className="h-5 w-5" style={{ color: "var(--event-primary)" }} />
                 <div>
-                  <p className="text-xs opacity-55">Tickets from</p>
+                  <p className="text-xs opacity-55">{isCinema ? "Seats from" : "Tickets from"}</p>
                   <p className="font-display text-2xl font-bold">{startingPrice(event)}</p>
                 </div>
               </div>
               <Separator className="my-6 opacity-15" />
-              <Button asChild className="h-12 w-full" style={{ backgroundColor: "var(--event-primary)", color: "var(--event-foreground)" }}>
-                <Link to={`/tickets/${event.slug}`}>
-                  Choose tickets <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
+              {sales.canBuy ? (
+                <Button asChild className="h-12 w-full" style={{ backgroundColor: "var(--event-primary)", color: "var(--event-foreground)" }}>
+                  <Link to={buyPath}>
+                    {isCinema ? "Choose seats" : "Choose tickets"} <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              ) : (
+                <Button disabled className="h-12 w-full">{sales.label}</Button>
+              )}
+              {sales.canBuy && event.salesCloseAt && (
+                <p className="mt-3 text-center text-xs opacity-60">Sales close {formatNairobi(event.salesCloseAt)}</p>
+              )}
+              {!sales.canBuy && (
+                <p className="mt-3 text-center text-xs opacity-60">
+                  {event.salesState === "not_started" ? "Tickets are not on sale yet. Check back soon." : "Tickets can't be bought for this event any more."}
+                </p>
+              )}
+              {isCinema && event.seatsTotal > 0 && sales.canBuy && (
+                <p className="mt-2 text-center text-xs opacity-60">{Math.max(0, event.seatsTotal - event.seatsTaken)} of {event.seatsTotal} seats left</p>
+              )}
               <div className="mt-5 flex items-start gap-2 text-xs opacity-55">
                 <ShieldCheck className="h-4 w-4 shrink-0" />
                 Secure checkout with M-Pesa

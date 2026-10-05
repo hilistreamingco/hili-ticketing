@@ -4,6 +4,7 @@ import {
   HiliEvent,
   formatEventDate,
   formatEventTime,
+  salesStatus,
   startingPrice,
 } from "@/lib/events";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ export default function EventCard({
   event: HiliEvent;
   size?: "default" | "large";
 }) {
+  const sales = salesStatus(event);
   return (
     <Link
       to={`/events/${event.slug}`}
@@ -33,7 +35,7 @@ export default function EventCard({
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
         <span className="absolute left-3 top-3 rounded-full bg-background/90 px-3 py-1 text-xs font-semibold text-foreground backdrop-blur">
-          {event.category}
+          {event.eventType === "cinema" ? "Cinema" : event.category}
         </span>
         <span className="absolute right-3 top-3 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
           {formatEventDate(event.date)}
@@ -66,8 +68,8 @@ export default function EventCard({
               {event.organizer.name}
             </span>
           </div>
-          <span className="text-sm font-semibold text-foreground">
-            From {startingPrice(event)}
+          <span className="text-right text-sm font-semibold text-foreground">
+            {sales.canBuy ? `From ${startingPrice(event)}` : sales.label}
           </span>
         </div>
       </div>

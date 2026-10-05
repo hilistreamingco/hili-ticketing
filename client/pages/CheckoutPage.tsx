@@ -15,7 +15,8 @@ import Layout from "@/components/layout/Layout";
 import PlaceholderPage from "@/components/PlaceholderPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatPrice, getEventBySlug } from "@/lib/events";
+import { formatPrice, getEventBySlug, salesStatus, type HiliEvent } from "@/lib/events";
+import { clearSeatOrder, getHoldToken, holdIsActive, loadSeatOrder } from "@/lib/seats";
 import type { PaymentConfig } from "@shared/api";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ function PaymentInstructions({
           <li className="flex gap-2">
             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">4</span>
             {isTill ? (
-              <span>Enter Till Number: <strong className="font-mono text-foreground">{number}</strong> <span className="text-muted-foreground">(PRESTIGE CINEMA 6)</span></span>
+              <span>Enter Till Number: <strong className="font-mono text-foreground">{number}</strong>{config?.till_name ? <span className="text-muted-foreground"> ({config.till_name})</span> : null}</span>
             ) : (
               <span>Enter Business Number: <strong className="font-mono text-foreground">{number}</strong></span>
             )}
@@ -122,9 +123,13 @@ function PaymentInstructions({
 function ConfirmationScreen({
   orderNumber,
   email,
+  eventTitle,
+  seats,
 }: {
   orderNumber: string;
   email: string;
+  eventTitle: string;
+  seats: string[];
 }) {
   return (
     <Layout>
@@ -134,7 +139,7 @@ function ConfirmationScreen({
           Order received
         </p>
         <h1 className="mt-3 font-display text-4xl font-bold">
-          Thank You for Trusting Hili × BeerBirds!
+          Thank you for booking {eventTitle}!
         </h1>
         <p className="mt-5 leading-7 text-muted-foreground">
           We've received your ticket order and are currently verifying your payment. Once your
@@ -151,6 +156,13 @@ function ConfirmationScreen({
             Keep this number for your records. You can use it to follow up on your order.
           </p>
         </div>
+
+        {seats.length > 0 && (
+          <div className="mt-6 w-full rounded-3xl border border-border bg-card p-6 text-left">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">Your seats</p>
+            <p className="mt-2 font-mono text-xl font-bold tracking-wider text-foreground">{seats.join(" · ")}</p>
+          </div>
+        )}
 
         <div className="mt-6 w-full rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-800">
           <ClipboardList className="mb-1 inline h-4 w-4" />{" "}
@@ -171,13 +183,27 @@ function ConfirmationScreen({
 
 // ─── Main CheckoutPage ───────────────────────────────────────────────────────
 
+function useCountdown(expiresAt: string | undefined) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!expiresAt) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [expiresAt]);
+  if (!expiresAt) return null;
+  return Math.max(0, Date.parse(expiresAt) - now);
+}
+
 export default function CheckoutPage() {
   const { slug } = useParams();
   const [params] = useSearchParams();
-  const [event, setEvent] = useState<any>(null);
+  const [event, setEvent] = useState<HiliEvent | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const quantity = Number(params.get("quantity")) || 1;
+  // Seat bookings come from the seat map (kept in this tab's storage); tier bookings come from the URL.
+  const seatMode = params.get("mode") === "seats";
+  const seatOrder = slug && seatMode ? loadSeatOrder(slug) : null;
+  const quantity = seatOrder ? seatOrder.seatIds.length : Number(params.get("quantity")) || 1;
   const email = params.get("email") || "";
   const names = (() => {
     try {
@@ -193,8 +219,11 @@ export default function CheckoutPage() {
   const [txCode, setTxCode] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "done" | "error">("idle");
   const [orderNumber, setOrderNumber] = useState("");
+  const [doneSeats, setDoneSeats] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
+  const remainingMs = useCountdown(seatOrder?.expiresAt);
 
   // Load event
   useEffect(() => {
@@ -214,15 +243,13 @@ export default function CheckoutPage() {
   // Load payment config for this event
   useEffect(() => {
     if (!event?.slug) return;
-    console.log('Loading payment config for:', event.slug);
     fetch(`/api/payment-config/${event.slug}`)
       .then((r) => r.json())
       .then((data: { config: PaymentConfig | null }) => {
-        console.log('Payment config loaded:', data.config);
         if (data.config) setPaymentConfig(data.config);
       })
       .catch((err) => {
-        console.error('Failed to load payment config:', err);
+        console.error("Failed to load payment config:", err);
       });
   }, [event?.slug]);
 
@@ -252,8 +279,6 @@ export default function CheckoutPage() {
     return () => clearTimeout(timer);
   }, [slug, mpesaName, phone, txCode]);
 
-  const ticket = event?.ticketTypes.find((t: any) => t.id === params.get("ticket")) || event?.ticketTypes[0];
-
   if (loading) {
     return (
       <Layout>
@@ -264,7 +289,16 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!event || !ticket) {
+  // Shown before the guards below: submitting clears the stored seat selection.
+  if (status === "done") {
+    return <ConfirmationScreen orderNumber={orderNumber} email={email} eventTitle={event?.title ?? "your event"} seats={doneSeats} />;
+  }
+
+  const ticket = seatMode
+    ? event?.ticketTypes.find((t) => t.id === seatOrder?.tierId)
+    : event?.ticketTypes.find((t) => t.id === params.get("ticket"));
+
+  if (!event || (seatMode ? !seatOrder : !ticket)) {
     return (
       <PlaceholderPage
         title="Checkout unavailable"
@@ -282,12 +316,18 @@ export default function CheckoutPage() {
     );
   }
 
-  const total = ticket.price * quantity;
+  const unitPrice = seatMode ? (seatOrder?.unitPrice ?? ticket?.price ?? 0) : ticket!.price;
+  const total = unitPrice * quantity;
+  const sales = salesStatus(event);
+  const itemName = seatMode ? (ticket ? `${ticket.name} · seats` : "Cinema seats") : ticket!.name;
+  const minutes = remainingMs === null ? null : Math.floor(remainingMs / 60000);
+  const seconds = remainingMs === null ? null : Math.floor((remainingMs % 60000) / 1000);
 
   const submit = async () => {
     if (!phone.trim() || !mpesaName.trim()) return;
     setStatus("submitting");
     setErrorMsg("");
+    setErrorCode("");
 
     try {
       const res = await fetch("/api/orders/manual", {
@@ -295,28 +335,33 @@ export default function CheckoutPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventSlug: event.slug,
-          ticketTypeName: ticket.name,
+          // The server works out the price itself; only what was chosen is sent.
+          ticketTypeId: ticket?.id,
+          seatIds: seatOrder?.seatIds,
+          holdToken: seatOrder ? getHoldToken() : undefined,
           purchaserName: names[0],
           purchaserEmail: email,
           purchaserPhone: formatPhone(phone),
           mpesaName: mpesaName.trim(),
           mpesaTransactionCode: txCode.trim().toUpperCase() || undefined,
           attendeeNames: names,
-          amountKes: total,
         }),
       });
 
-      const data = (await res.json()) as { orderId?: string; orderNumber?: string; error?: string };
+      const data = (await res.json()) as { orderNumber?: string; seatLabels?: string[]; error?: string; code?: string };
 
       if (!res.ok) {
         setErrorMsg(data.error || "Could not submit your order. Please try again.");
+        setErrorCode(data.code || "");
         setStatus("error");
         return;
       }
 
       // Clear saved checkout state
       localStorage.removeItem(`checkout-${slug}`);
-      
+      if (slug) clearSeatOrder(slug);
+
+      setDoneSeats(data.seatLabels ?? seatOrder?.labels ?? []);
       setOrderNumber(data.orderNumber || "");
       setStatus("done");
     } catch {
@@ -325,15 +370,11 @@ export default function CheckoutPage() {
     }
   };
 
-  if (status === "done") {
-    return <ConfirmationScreen orderNumber={orderNumber} email={email} />;
-  }
-
   return (
     <Layout>
       <div className="container max-w-2xl py-12 md:py-20">
         <Link
-          to={`/attendee/${event.slug}?ticket=${ticket.id}`}
+          to={seatMode ? `/attendee/${event.slug}?mode=seats` : `/attendee/${event.slug}?ticket=${ticket!.id}`}
           className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" /> Back to attendee details
@@ -349,12 +390,39 @@ export default function CheckoutPage() {
           Follow the steps below, then click the button to submit your order.
         </p>
 
+        {/* Seat hold countdown */}
+        {seatOrder && (
+          <div className={`mt-6 rounded-2xl border p-4 text-sm ${holdIsActive(seatOrder) ? "border-border bg-card" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+            {holdIsActive(seatOrder) ? (
+              <p>
+                Your seats <strong>{seatOrder.labels.join(", ")}</strong> are held for{" "}
+                <strong className="font-mono">{minutes}:{String(seconds).padStart(2, "0")}</strong>. Pay and submit before the time runs out.
+              </p>
+            ) : (
+              <p>
+                Your seat hold for <strong>{seatOrder.labels.join(", ")}</strong> has run out. If you have already paid, submit your order below
+                and we'll keep the same seats if they are still free.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!seatMode && !sales.canBuy && (
+          <div className="mt-6 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <TriangleAlert className="h-5 w-5 shrink-0" />
+            <p>
+              {sales.label}. If you have already paid, submit your order below and our team will look at it. Otherwise please don't pay.
+            </p>
+          </div>
+        )}
+
         {/* Order summary */}
         <div className="mt-8 flex items-center justify-between rounded-2xl border border-border bg-card px-6 py-4">
           <div>
-            <p className="font-display font-semibold">{ticket.name}</p>
+            <p className="font-display font-semibold">{itemName}</p>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {event.title} · {quantity} ticket{quantity > 1 ? "s" : ""}
+              {event.title} · {quantity} {seatMode ? "seat" : "ticket"}{quantity > 1 ? "s" : ""}
+              {seatMode && seatOrder ? ` (${seatOrder.labels.join(", ")})` : ""}
             </p>
           </div>
           <p className="font-display text-xl font-bold">{formatPrice(total)}</p>
@@ -438,6 +506,12 @@ export default function CheckoutPage() {
             <div>
               <p className="font-semibold">Order could not be submitted</p>
               <p className="mt-1">{errorMsg}</p>
+              {errorCode === "SEAT_TAKEN" && (
+                <Link to={`/seats/${event.slug}`} className="mt-2 inline-block font-semibold underline">Choose seats again</Link>
+              )}
+              {(errorCode === "SALES_CLOSED" || errorCode === "SEAT_TAKEN") && (
+                <p className="mt-2">If you have already paid, please <Link to="/contact" className="font-semibold underline">contact us</Link> with your M-Pesa code.</p>
+              )}
             </div>
           </div>
         )}

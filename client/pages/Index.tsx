@@ -1,9 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, CalendarDays, MapPin, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
+import EventCard from "@/components/EventCard";
 import { Button } from "@/components/ui/button";
-import { getEvents, subscribeToEvents, formatEventDate, type HiliEvent } from "@/lib/events";
+import {
+  getEvents,
+  groupEventsByDate,
+  isPastEvent,
+  salesStatus,
+  subscribeToEvents,
+  formatEventDate,
+  type HiliEvent,
+} from "@/lib/events";
 
 export default function Index() {
   const [events, setEvents] = useState<HiliEvent[]>([]);
@@ -33,10 +42,10 @@ export default function Index() {
     );
   }
 
-  const upcoming = events.find(e => e.featured) ?? events[0];
-  const future = events.find(e => !e.featured) ?? events[1];
+  // The list is already sorted: upcoming events soonest first, then past ones.
+  const hero = events[0];
 
-  if (!upcoming) {
+  if (!hero) {
     return (
       <Layout>
         <section className="bg-[#d8f54a] text-[#0b0b0b]">
@@ -51,20 +60,27 @@ export default function Index() {
     );
   }
 
+  const heroStatus = salesStatus(hero);
+  const others = events.slice(1);
+  const groups = groupEventsByDate(others);
+
   return (
     <Layout>
       <section className="bg-[#d8f54a] text-[#0b0b0b]">
         <div className="container grid min-h-[calc(100vh-4rem)] items-center gap-12 py-14 lg:grid-cols-[.9fr_1.1fr] lg:py-20">
           <div className="max-w-xl">
-            <p className="text-[10px] font-semibold uppercase tracking-[.3em]">Hili presents</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[.3em]">
+              {isPastEvent(hero) ? "Hili presented" : "Hili presents"}
+            </p>
             <h1 className="mt-6 font-display text-5xl font-bold leading-[.92] tracking-[-.07em] sm:text-7xl md:text-8xl">
-              {upcoming.title}
+              {hero.title}
             </h1>
             <p className="mt-7 max-w-sm font-display text-base font-bold leading-7 text-black">
-              {upcoming.shortDescription}
+              {hero.shortDescription}
             </p>
-            <Button asChild size="lg" variant="secondary" className="mt-8">
-              <Link to={`/events/${upcoming.slug}`}>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-black/60">{heroStatus.label}</p>
+            <Button asChild size="lg" variant="secondary" className="mt-6">
+              <Link to={`/events/${hero.slug}`}>
                 View event details <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
@@ -72,59 +88,43 @@ export default function Index() {
           <div className="relative mx-auto w-full max-w-[500px]">
             <div className="overflow-hidden rounded-[2rem] bg-[#171717] shadow-2xl">
               <img
-                src={upcoming.coverImage}
-                alt={`${upcoming.title} poster`}
+                src={hero.coverImage}
+                alt={`${hero.title} poster`}
                 className="aspect-[4/5] w-full object-cover"
               />
             </div>
-            {upcoming.date && (
+            {hero.date && (
               <div className="absolute -bottom-5 -right-4 rounded-2xl bg-[#f4f1ea] px-5 py-4 shadow-xl sm:-right-7">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-black/45">Event date</p>
-                <p className="mt-1 font-display text-sm font-bold">{formatEventDate(upcoming.date)}</p>
+                <p className="mt-1 font-display text-sm font-bold">{formatEventDate(hero.date)}</p>
               </div>
             )}
           </div>
         </div>
       </section>
 
-      {future && (
+      {groups.length > 0 && (
         <section className="bg-[#f4f1ea]">
-          <div className="container grid gap-12 py-20 md:grid-cols-[.85fr_1.15fr] md:py-28">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-black/45">What comes next</p>
-              <h2 className="mt-5 max-w-md font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
-                Keep your calendar open.
-              </h2>
-            </div>
-            <div>
-              <div className="grid gap-6 border-y border-black/15 py-7 sm:grid-cols-3">
-                {future.date && <Detail icon={CalendarDays} label="Proposed date" value={formatEventDate(future.date)} />}
-                {future.city && <Detail icon={MapPin} label="City" value={future.city} />}
-                <Detail label="Status" value="Coming soon" />
-              </div>
-              <p className="mt-7 max-w-lg text-sm leading-7 text-black/55">{future.shortDescription}</p>
-              <Link
-                to="/future"
-                className="mt-7 inline-flex items-center gap-2 text-sm font-bold underline decoration-[#859900] decoration-2 underline-offset-4"
-              >
-                Explore the next one <ArrowRight className="h-4 w-4" />
-              </Link>
+          <div className="container py-20 md:py-28">
+            <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-black/45">More events</p>
+            <h2 className="mt-5 max-w-md font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+              Keep your calendar open.
+            </h2>
+            <div className="mt-12 space-y-12">
+              {groups.map((group) => (
+                <div key={group.date || "tba"}>
+                  <h3 className="border-b border-black/15 pb-3 font-display text-lg font-bold">
+                    {group.date ? formatEventDate(group.date) : "Date to be announced"}
+                  </h3>
+                  <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                    {group.events.map((event) => <EventCard key={event.id} event={event} />)}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </section>
       )}
     </Layout>
-  );
-}
-
-function Detail({ icon: Icon, label, value }: { icon?: typeof CalendarDays; label: string; value: string }) {
-  return (
-    <div className="flex gap-3">
-      {Icon && <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#657600]" />}
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-black/45">{label}</p>
-        <p className="mt-1 text-sm font-semibold">{value}</p>
-      </div>
-    </div>
   );
 }

@@ -1,5 +1,24 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../_lib/auth.js';
+import { createClient } from '@supabase/supabase-js';
+
+// Kept free of relative imports on purpose: checkout needs this endpoint, so it
+// must not depend on shared files that could fail to bundle.
+function getServiceClient() {
+  const url = process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+// True only for a signed-in user whose confirmed email is in ADMIN_EMAILS.
+async function isHiliAdminRequest(supabase: any, authHeader?: string): Promise<boolean> {
+  if (!authHeader?.startsWith('Bearer ')) return false;
+  const { data, error } = await supabase.auth.getUser(authHeader.slice(7).trim());
+  const user = data?.user;
+  if (error || !user?.email || !user.email_confirmed_at) return false;
+  const admins = (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return admins.includes(user.email.toLowerCase());
+}
 
 // Public: the till / paybill details buyers see at checkout.
 //
@@ -32,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'Missing Supabase config' });
     }
 
-    const admin = isHiliAdmin(await getAuthedUser(req.headers.authorization as string));
+    const admin = await isHiliAdminRequest(supabase, req.headers.authorization as string);
 
     // Get event by slug
     let eventQuery = supabase.from('events').select('id').eq('slug', eventSlug);
