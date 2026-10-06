@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../_lib/auth.js';
+import { getAuthedUser, getServiceClient, isHiliAdmin } from '../lib/auth.js';
 import { randomUUID } from 'crypto';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

@@ -1,11 +1,38 @@
 import express from 'express';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin, canUsePrestige } from './_lib/auth.js';
+import { getAuthedUser, getServiceClient, isHiliAdmin, canUsePrestige } from '../backend/lib/auth.js';
+import eventsHandler from '../backend/handlers/events.js';
+import eventHandler from '../backend/handlers/event.js';
+import eventTicketsHandler from '../backend/handlers/eventTickets.js';
+import tiersHandler from '../backend/handlers/tiers.js';
+import tierHandler from '../backend/handlers/tier.js';
+import meHandler from '../backend/handlers/me.js';
+import uploadPosterHandler from '../backend/handlers/uploadPoster.js';
+import orderManualHandler from '../backend/handlers/orderManual.js';
+import paymentConfigHandler from '../backend/handlers/paymentConfig.js';
 
+// ONE serverless function serves the whole API. Vercel's free plan allows 12 functions in total
+// and the API had grown past that, so every route now lives behind this file (vercel.json sends
+// /api/* here). The handlers are in /backend. Posters arrive as base64 JSON, hence the larger limit
+// (Vercel itself caps a request at 4.5 MB).
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '6mb' }));
 
-// Auth is verified (signature checked by Supabase Auth) in api/_lib/auth.ts
+// The handlers in /backend were written as separate Vercel functions: they read req.query for both
+// ?name=value and the dynamic parts of the path (/events/:id). This gives them the same shape.
+function asHandler(handler: (req: any, res: any) => unknown) {
+  return async (req: any, res: any) => {
+    const shim = { method: req.method, headers: req.headers, body: req.body, query: { ...req.query, ...req.params } };
+    try {
+      await handler(shim, res);
+    } catch (error: any) {
+      console.error('Unhandled API error:', req.method, req.path, error);
+      if (!res.headersSent) res.status(500).json({ error: error?.message || 'Internal server error' });
+    }
+  };
+}
+
+// Auth is verified (signature checked by Supabase Auth) in backend/lib/auth.ts
 function getSupabase() {
   const client = getServiceClient();
   if (!client) throw new Error('Missing Supabase config');
@@ -481,6 +508,22 @@ app.put('/api/x/admin/brackets', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ── Routes that used to be separate functions ───────────────────────────────
+app.get('/api/ping', (_req, res) => res.json({ message: process.env.PING_MESSAGE ?? 'ping' }));
+
+app.all('/api/admin/me', asHandler(meHandler));
+app.all('/api/admin/events/:id/tickets', asHandler(eventTicketsHandler));
+app.all('/api/admin/events/:id', asHandler(eventHandler));
+app.all('/api/admin/events', asHandler(eventsHandler));
+app.all('/api/admin/tickets/:id', asHandler(tierHandler));
+app.all('/api/admin/tickets', asHandler(tiersHandler));
+app.all('/api/admin/upload-poster', asHandler(uploadPosterHandler));
+app.all('/api/orders/manual', asHandler(orderManualHandler));
+app.all('/api/payment-config/:eventSlug', asHandler(paymentConfigHandler));
+
+// Anything else under /api: a clear 404 instead of a hanging request
+app.use('/api', (_req, res) => res.status(404).json({ error: 'API endpoint not found' }));
 
 // Export for Vercel
 export default app;

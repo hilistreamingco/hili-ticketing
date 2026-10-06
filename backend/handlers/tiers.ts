@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../_lib/auth.js';
-import { cleanTierFields } from '../_lib/tier-fields.js';
+import { getAuthedUser, getServiceClient, isHiliAdmin } from '../lib/auth.js';
+import { cleanTierFields } from '../lib/tier-fields.js';
 
 // POST - create a ticket tier (early bird, advance, special offer, ...) for any event.
 export default async function handler(req: VercelRequest, res: VercelResponse) {

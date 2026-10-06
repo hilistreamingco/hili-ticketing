@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../../_lib/auth.js';
-import { cleanEventFields, derivePrefix, uniquePrefix } from '../../_lib/event-fields.js';
+import { getAuthedUser, getServiceClient, isHiliAdmin } from '../lib/auth.js';
+import { cleanEventFields, derivePrefix, uniquePrefix } from '../lib/event-fields.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
