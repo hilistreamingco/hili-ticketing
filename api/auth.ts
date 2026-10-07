@@ -6,7 +6,7 @@ type Body = Record<string, any>;
 export type Cleaned = { fields: Record<string, unknown>; error?: string };
 
 const STATUSES = ['draft', 'published', 'archived'];
-const TYPES = ['general', 'cinema'];
+const TYPES = ['general', 'cinema', 'gate'];
 const MODES = ['tiers', 'seats_taken'];
 const OVERRIDES = ['auto', 'open', 'closed'];
 export const PREFIX_RE = /^[A-Z0-9]{2,8}$/;

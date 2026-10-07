@@ -67,6 +67,10 @@ export default function Index() {
   }
 
   const heroStatus = salesStatus(hero);
+  const heroIsGate = hero.eventType === "gate";
+  const heroLabel = heroIsGate
+    ? (hero.gatePriceText || "Gate entry event")
+    : heroStatus.label;
   const others = events.slice(1);
   const groups = groupEventsByDate(others);
 
@@ -84,7 +88,7 @@ export default function Index() {
             <p className="mt-7 max-w-sm font-display text-base font-bold leading-7 text-black">
               {hero.shortDescription}
             </p>
-            <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-black/60">{heroStatus.label}</p>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-black/60">{heroLabel}</p>
             <Button asChild size="lg" variant="secondary" className="mt-6">
               <Link to={`/events/${hero.slug}`}>
                 View event details <ArrowRight className="h-4 w-4" />

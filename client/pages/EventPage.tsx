@@ -58,8 +58,9 @@ export default function EventPage() {
     "--event-radius": event.theme.radius,
   } as React.CSSProperties;
 
-  // Horizontal / landscape banner (poster2). Hidden for cinema events (those use a tall
-  // cover layout instead) and hidden when the image is not set — no empty gap.
+  // Alternate poster (poster2) — vertical portrait/DC shape.
+  // Cinema events keep only the horizontal hero cover; general & gate events show
+  // an extra vertical poster image when one has been uploaded.
   const hasCover2 = !isCinema && Boolean(event.coverImage2);
   const descriptionHTML = event.description
     .split(/\n\s*\n/)
@@ -113,14 +114,16 @@ export default function EventPage() {
             </div>
           </div>
 
-          {/* Horizontal / alternate banner. Rendered ONLY when set. */}
+          {/* Alternate vertical poster. Rendered ONLY when set and only for non-cinema events. */}
           {hasCover2 && (
-            <div className="mt-5 w-full max-w-full overflow-hidden rounded-[var(--event-radius)] md:mt-6">
-              <img
-                src={event.coverImage2 as string}
-                alt={`${event.title} — banner`}
-                className="aspect-[16/6] w-full max-w-full object-cover"
-              />
+            <div className="mt-5 w-full max-w-full md:mt-6">
+              <div className="mx-auto w-full max-w-md overflow-hidden rounded-[var(--event-radius)] shadow-2xl ring-1 ring-black/10">
+                <img
+                  src={event.coverImage2 as string}
+                  alt={`${event.title} — poster`}
+                  className="aspect-[2/3] w-full max-w-full object-cover"
+                />
+              </div>
             </div>
           )}
         </section>
