@@ -654,23 +654,24 @@ function EventEditor({
           </div>
           <p className="px-1 text-xs text-black/35">PNG, JPEG or WebP, up to 5 MB.</p>
 
-          {/* Second / alternate poster — landscape (horizontal). Visible for General and Gate events; hidden for Cinema (different event layout). */}
+          {/* Second / alternate poster — vertical portrait / DC movie poster shape.
+              Visible for General and Gate events; hidden for Cinema (cinema has a tall hero cover instead). */}
           {draft.event_type !== "cinema" && (
             <div className="pt-1">
-              <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-black/45">Alternate poster · landscape / banner</p>
+              <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-black/45">Alternate poster · portrait (vertical)</p>
               <div onClick={() => !uploading2 && file2Ref.current?.click()}
-                className="relative cursor-pointer overflow-hidden rounded-2xl border-2 border-dashed border-black/15 bg-white hover:border-black/30">
-                <div className="flex aspect-[16/6] items-center justify-center bg-black/3">
+                className="relative mx-auto max-w-xs cursor-pointer overflow-hidden rounded-2xl border-2 border-dashed border-black/15 bg-white hover:border-black/30">
+                <div className="flex aspect-[2/3] items-center justify-center bg-black/3">
                   {poster2
-                    ? <img src={poster2} alt="Alternate banner" className="h-full w-full object-cover" />
-                    : <div className="flex flex-col items-center gap-2 text-black/30"><Upload className="h-7 w-7" /><p className="text-xs">Upload wide banner (horizontal)</p></div>}
+                    ? <img src={poster2} alt="Alternate poster" className="h-full w-full object-cover" />
+                    : <div className="flex flex-col items-center gap-2 text-black/30 px-4 text-center"><Upload className="h-7 w-7" /><p className="text-xs">Upload portrait poster (2:3, e.g. 1000 × 1500)</p></div>}
                 </div>
                 {uploading2 && (
                   <div className="absolute inset-0 flex items-center justify-center bg-white/80">
                     <Loader2 className="h-6 w-6 animate-spin text-black/50" />
                   </div>
                 )}
-                <p className="p-3 text-center text-xs font-semibold text-black/40">{poster2 ? "Click to replace" : "Optional · shown under the main poster"}</p>
+                <p className="p-3 text-center text-xs font-semibold text-black/40">{poster2 ? "Click to replace" : "Optional · shown below the main hero"}</p>
                 <input ref={file2Ref} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e => void doUpload2(e.target.files?.[0])} />
               </div>
               {poster2 && (
