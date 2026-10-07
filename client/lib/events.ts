@@ -54,6 +54,7 @@ export interface HiliEvent {
   description: string;
   category: string;
   coverImage: string;
+  coverImage2: string | null;
   logoText: string;
   date: string;
   startTime: string;
@@ -152,8 +153,9 @@ function mapEvent(ev: any, overview: SalesOverview, listState?: SalesState): Hil
     title: (ev.name as string) ?? "Untitled Event",
     shortDescription: (ev.short_description as string) ?? "",
     description: (ev.description as string) ?? "",
-    category: "Festival",
+    category: "Hili Event",
     coverImage: (ev.poster_path as string) ?? "/placeholder-event.jpg",
+    coverImage2: (ev.poster2_path as string | null) ?? null,
     logoText: ((ev.name as string) ?? "HILI").toUpperCase(),
     date: (ev.event_date as string) ?? "",
     startTime: (ev.start_time as string) ?? "",

@@ -74,11 +74,22 @@ export default function SeatMap({
   const seatByKey = useMemo(() => new Map(seats.map((s) => [`${s.row_label}-${s.seat_number}`, s])), [seats]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
-  // Fit the drawing to the container; phones scroll sideways rather than shrink seats below a tappable size.
+  // Fit the drawing to the container.
+  //   * Desktop (lg+): keep seats large and readable. Fit clamped to 0.8 – 1.3.
+  //   * Mobile (< lg): start smaller so the whole map is visible without
+  //     horizontal scrolling (user requested ~60%). Users can zoom in.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const calc = () => setFit(Math.min(1.3, Math.max(0.78, el.clientWidth / geometry.width)));
+    const calc = () => {
+      const ratio = el.clientWidth / geometry.width;
+      const isMobile = window.matchMedia ? window.matchMedia("(max-width: 1023px)").matches : true;
+      const minFit = isMobile ? 0.52 : 0.78;
+      const maxFit = isMobile ? 0.92 : 1.3;
+      const defaultZoom = isMobile ? 0.60 : 1;
+      setFit(Math.min(maxFit, Math.max(minFit, ratio)));
+      setZoom(defaultZoom);
+    };
     calc();
     window.addEventListener("resize", calc);
     return () => window.removeEventListener("resize", calc);

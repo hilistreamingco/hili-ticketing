@@ -35,6 +35,7 @@ import {
   saveAdminTicketType,
   deleteAdminTicketType,
   uploadEventPoster,
+  uploadEventPoster2,
   getAdminTickets,
   getAdminStats,
   getAdminBrackets,
@@ -423,6 +424,7 @@ function EventEditor({
   const [row, setRow] = useState<AdminEvent | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [poster, setPoster] = useState("");
+  const [poster2, setPoster2] = useState("");
   const [tiers, setTiers] = useState<AdminTicketType[]>([]);
   const [overview, setOverview] = useState<EventSalesOverview>(null);
   const [loading, setLoading] = useState(Boolean(eventId));
@@ -430,7 +432,9 @@ function EventEditor({
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploading2, setUploading2] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const file2Ref = useRef<HTMLInputElement>(null);
 
   const showMsg = (text: string, ok: boolean) => {
     setMsg({ text, ok });
@@ -449,6 +453,7 @@ function EventEditor({
       setRow(ev);
       setDraft(draftFrom(ev));
       setPoster(ev.poster_path ?? "");
+      setPoster2(ev.poster2_path ?? "");
       setTiers(tierRows);
       setOverview(await getEventSalesOverview(eventId));
     } catch (err) {
@@ -475,6 +480,7 @@ function EventEditor({
     venue_map_url: draft.venue_map_url || null,
     status: draft.status,
     poster_path: poster || null,
+    poster2_path: poster2 || null,
     event_type: draft.event_type,
     ticket_prefix: draft.ticket_prefix.trim().toUpperCase() || null,
     max_seats_per_order: Number(draft.max_seats_per_order) || 6,
@@ -533,6 +539,27 @@ function EventEditor({
       showMsg(err instanceof Error ? err.message : "Upload failed", false);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const doUpload2 = async (file?: File) => {
+    if (!file) return;
+    setUploading2(true);
+    try {
+      const wasNew = !row;
+      const target = row ?? (await doSave(true));
+      if (!target) return;
+      const { url } = await uploadEventPoster2(file, target.id);
+      setPoster2(url);
+      const saved = await saveAdminEvent({ id: target.id, poster2_path: url });
+      setRow(saved);
+      onChanged();
+      showMsg("Second poster uploaded.", true);
+      if (wasNew) onSelect(saved.id);
+    } catch (err) {
+      showMsg(err instanceof Error ? err.message : "Upload failed", false);
+    } finally {
+      setUploading2(false);
     }
   };
 
@@ -604,7 +631,7 @@ function EventEditor({
 
       {/* Two-column layout */}
       <div className="mt-8 grid gap-6 lg:grid-cols-[260px_1fr]">
-        {/* Poster */}
+        {/* Posters */}
         <div className="space-y-3">
           <div onClick={() => !uploading && fileRef.current?.click()}
             className="relative cursor-pointer overflow-hidden rounded-2xl border-2 border-dashed border-black/15 bg-white hover:border-black/30">
@@ -622,6 +649,37 @@ function EventEditor({
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e => void doUpload(e.target.files?.[0])} />
           </div>
           <p className="px-1 text-xs text-black/35">PNG, JPEG or WebP, up to 5 MB.</p>
+
+          {/* Second poster — only for regular (general) events, not cinema */}
+          {draft.event_type !== "cinema" && (
+            <div className="pt-1">
+              <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-black/45">Alternate poster</p>
+              <div onClick={() => !uploading2 && file2Ref.current?.click()}
+                className="relative cursor-pointer overflow-hidden rounded-2xl border-2 border-dashed border-black/15 bg-white hover:border-black/30">
+                <div className="flex aspect-[3/4] items-center justify-center bg-black/3">
+                  {poster2
+                    ? <img src={poster2} alt="Alternate poster" className="h-full w-full object-cover" />
+                    : <div className="flex flex-col items-center gap-2 text-black/30"><Upload className="h-7 w-7" /><p className="text-xs">Upload second poster</p></div>}
+                </div>
+                {uploading2 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/80">
+                    <Loader2 className="h-6 w-6 animate-spin text-black/50" />
+                  </div>
+                )}
+                <p className="p-3 text-center text-xs font-semibold text-black/40">{poster2 ? "Click to replace" : "Optional"}</p>
+                <input ref={file2Ref} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e => void doUpload2(e.target.files?.[0])} />
+              </div>
+              {poster2 && (
+                <button
+                  type="button"
+                  onClick={() => { setPoster2(""); if (row) void saveAdminEvent({ id: row.id, poster2_path: null }).then(() => { onChanged(); showMsg("Removed second poster.", true); }).catch(() => undefined); }}
+                  className="mt-2 w-full rounded-xl border border-black/10 px-3 py-1.5 text-xs font-semibold text-black/50 hover:border-black/25 hover:text-black/80"
+                >
+                  Remove alternate poster
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-6">

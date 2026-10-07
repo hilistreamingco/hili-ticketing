@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import express from 'express';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getAuthedUser, getServiceClient, isHiliAdmin, canUsePrestige } from '../backend/lib/auth.js';
@@ -511,6 +512,51 @@ app.put('/api/x/admin/brackets', async (req, res) => {
 
 // ── Routes that used to be separate functions ───────────────────────────────
 app.get('/api/ping', (_req, res) => res.json({ message: process.env.PING_MESSAGE ?? 'ping' }));
+
+// Second poster upload (events.poster2_path) — mirrors the original poster upload exactly
+app.post('/api/admin/upload-poster2', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization as string);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { eventId, base64, mimeType } = req.body as Record<string, string>;
+    if (!eventId || !base64 || !mimeType) return res.status(400).json({ error: 'eventId, base64, and mimeType are required' });
+
+    const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowed.includes(mimeType)) return res.status(400).json({ error: 'Posters must be PNG, JPEG or WebP images' });
+
+    const supabase = getSupabase();
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 5 * 1024 * 1024) return res.status(413).json({ error: 'Poster is larger than 5 MB' });
+
+    const ext = mimeType.split('/')[1] || 'jpg';
+    const path = `${eventId}/poster2-${randomUUID()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from('event-posters')
+      .upload(path, buffer, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+
+    const { data: urlData } = supabase.storage.from('event-posters').getPublicUrl(path);
+    res.json({ url: urlData.publicUrl });
+  } catch (error: any) {
+    console.error('Upload poster2 error:', error);
+    res.status(500).json({ error: error.message || 'Upload failed' });
+  }
+});
+
+// Best-effort: cancel stale cinema orders and release seats on seat page access
+// (idempotent, safe to call repeatedly; a Supabase cron is not required)
+app.post('/api/x/cleanup-stale-orders', async (_req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('cleanup_stale_cinema_orders', { p_hours: 24 });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ cancelled: data ?? 0 });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.all('/api/admin/me', asHandler(meHandler));
 app.all('/api/admin/events/:id/tickets', asHandler(eventTicketsHandler));

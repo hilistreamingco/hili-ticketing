@@ -69,10 +69,18 @@ export default function SeatSelectionPage() {
     return () => { active = false; };
   }, [event?.seatLayoutId]);
 
-  // Taken seats: live, with a slow refetch so expired holds free up on screen
+  // Taken seats: live, with a slow refetch so expired holds free up on screen.
+  // Also, on the very first refresh, fire a best-effort cleanup: cinema orders
+  // that have been pending for >24h get cancelled and their seats are released
+  // for other buyers (RPC is idempotent, safe to call many times).
   const eventId = event?.id;
+  const firstCleanup = useRef(false);
   const refreshTaken = useCallback(async () => {
     if (!eventId) return;
+    if (!firstCleanup.current) {
+      firstCleanup.current = true;
+      void fetch("/api/x/cleanup-stale-orders", { method: "POST" }).catch(() => undefined);
+    }
     setTaken(await getTakenSeats(eventId));
   }, [eventId]);
 
@@ -162,20 +170,20 @@ export default function SeatSelectionPage() {
 
   return (
     <Layout>
-      <div className="container max-w-6xl py-10 md:py-16">
+      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10 md:py-16 lg:px-8">
         <Link to={`/events/${event.slug}`} className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Back to event
         </Link>
 
-        <p className="mt-8 text-[10px] font-semibold uppercase tracking-[.3em] text-primary">Step 1 / Seats</p>
-        <h1 className="mt-3 font-display text-4xl font-bold tracking-tight">Choose your seats</h1>
-        <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
+        <p className="mt-6 text-[10px] font-semibold uppercase tracking-[.3em] text-primary md:mt-8">Step 1 / Seats</p>
+        <h1 className="mt-2 font-display text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">Choose your seats</h1>
+        <div className="mt-3 flex flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-6 sm:gap-y-1">
           <span className="flex items-center gap-2"><CalendarDays className="h-4 w-4" /> {formatEventDate(event.date)}{event.startTime ? ` · ${formatEventTime(event.startTime)}` : ""}</span>
           <span className="flex items-center gap-2"><MapPin className="h-4 w-4" /> {event.venue}{event.city ? `, ${event.city}` : ""}</span>
         </div>
 
         {!status.canBuy && (
-          <div className="mt-6 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             <TriangleAlert className="h-5 w-5 shrink-0" />
             <div>
               <p className="font-semibold">{status.label}</p>
@@ -184,8 +192,8 @@ export default function SeatSelectionPage() {
           </div>
         )}
 
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_340px]">
-          <div>
+        <div className="mt-6 grid gap-6 md:mt-8 md:gap-8 lg:grid-cols-[1fr_340px]">
+          <div className="min-w-0">
             {layoutFailed && (
               <p className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                 The seating plan could not be loaded. Please refresh the page.
@@ -207,8 +215,14 @@ export default function SeatSelectionPage() {
             )}
           </div>
 
-          <aside>
-            <div className="sticky top-24 space-y-4 rounded-3xl border border-border bg-card p-6">
+          <aside className="lg:order-last">
+            <div className="space-y-4 rounded-3xl border border-border bg-card p-5 md:p-6
+                            lg:sticky lg:top-24
+                            fixed bottom-0 left-0 right-0 z-30 lg:static
+                            rounded-t-2xl rounded-b-none border-b-0 lg:rounded-3xl lg:border-b
+                            shadow-[0_-8px_30px_rgba(0,0,0,0.08)] lg:shadow-none
+                            pb-[max(1rem,env(safe-area-inset-bottom))] lg:pb-6
+                            max-h-[55vh] lg:max-h-[calc(100vh-7rem)] overflow-y-auto">
               {!seatsMode && (
                 <div>
                   <p className="text-sm font-semibold">Ticket type</p>
@@ -272,8 +286,10 @@ export default function SeatSelectionPage() {
               <Button onClick={() => void onContinue()} disabled={!canContinue} className="h-12 w-full">
                 {holding ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Holding your seats…</> : <>Continue <ArrowRight className="ml-2 h-4 w-4" /></>}
               </Button>
-              <p className="text-center text-xs text-muted-foreground">Your seats are held for 20 minutes while you pay.</p>
+              <p className="text-center text-xs text-muted-foreground pb-2 lg:pb-0">Your seats are held for 20 minutes while you pay.</p>
             </div>
+            {/* Spacer so mobile content above bottom-fixed card isn't hidden */}
+            <div className="h-[260px] w-full lg:hidden" aria-hidden="true" />
           </aside>
         </div>
       </div>

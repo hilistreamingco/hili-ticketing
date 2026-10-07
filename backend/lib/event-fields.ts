@@ -19,7 +19,7 @@ export function cleanEventFields(body: Body): Cleaned {
     if (body[k] === undefined) return;
     f[k] = body[k] === null || body[k] === '' ? null : String(body[k]);
   };
-  ['short_description', 'description', 'poster_path', 'venue', 'address', 'city',
+  ['short_description', 'description', 'poster_path', 'poster2_path', 'venue', 'address', 'city',
     'venue_map_url', 'event_date', 'start_time', 'end_time'].forEach(text);
 
   if (body.name !== undefined) {

@@ -43,13 +43,26 @@ export async function getSeatLayout(layoutId: string): Promise<{ config: SeatLay
 export async function getTakenSeats(eventId: string): Promise<Map<string, SeatStatus>> {
   const map = new Map<string, SeatStatus>();
   if (!supabase) return map;
-  const { data } = await supabase
-    .from("seat_reservations")
-    .select("seat_id, status")
-    .eq("event_id", eventId)
-    .limit(1000);
-  for (const row of data ?? []) map.set(row.seat_id as string, row.status as SeatStatus);
-  return map;
+
+  try {
+    // Use the server RPC if available — it also hides seat_holds attached to
+    // pending/processing cinema orders older than 24h (auto-canceled stale orders).
+    // Falls back to the direct client query when the RPC isn't deployed yet.
+    const rpc = await supabase.rpc("get_taken_seats", { p_event: eventId });
+    if (rpc.error) throw rpc.error;
+    const rows = Array.isArray(rpc.data) ? rpc.data : [];
+    for (const row of rows) map.set((row as any).seat_id as string, (row as any).status as SeatStatus);
+    return map;
+  } catch {
+    // Fallback: direct table query (the old behaviour, still works without the 011 migration)
+    const { data } = await supabase
+      .from("seat_reservations")
+      .select("seat_id, status")
+      .eq("event_id", eventId)
+      .limit(1000);
+    for (const row of data ?? []) map.set(row.seat_id as string, row.status as SeatStatus);
+    return map;
+  }
 }
 
 export function subscribeToSeatReservations(eventId: string, callback: () => void) {

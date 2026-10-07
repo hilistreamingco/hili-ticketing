@@ -20,6 +20,7 @@ export type AdminEvent = {
   short_description: string | null;
   description: string | null;
   poster_path: string | null;
+  poster2_path: string | null;
   venue: string | null;
   address: string | null;
   city: string | null;
@@ -304,6 +305,29 @@ async function compressImage(file: File, maxWidth: number, quality: number): Pro
     };
     reader.readAsDataURL(file);
   });
+}
+
+export async function uploadEventPoster2(file: File, eventId: string): Promise<{ url: string }> {
+  let fileToUpload = file;
+  if (file.size > 1024 * 1024) {
+    fileToUpload = await compressImage(file, 1920, 0.85);
+  }
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(fileToUpload);
+  });
+
+  const data = await adminPost<{ url: string }>("/api/admin/upload-poster2", {
+    eventId,
+    base64,
+    mimeType: fileToUpload.type,
+  });
+  return { url: data.url };
 }
 
 // ── Attendee tickets (via server: tickets are not readable with the browser key) ──

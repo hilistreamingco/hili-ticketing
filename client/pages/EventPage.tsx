@@ -54,6 +54,32 @@ export default function EventPage() {
     "--event-radius": event.theme.radius,
   } as React.CSSProperties;
 
+  const hasCover2 = !isCinema && Boolean(event.coverImage2);
+  const descriptionHTML = event.description
+    .split(/\n\s*\n/)
+    .filter(Boolean)
+    .map((block) => {
+      const trimmed = block.trim();
+      const lines = trimmed.split("\n").map((l) => l.trim()).filter(Boolean);
+      const isList = lines.length >= 2 && lines.every((l) => /^([\*\-\•\d+[\.\)\]]|\w[:：]|(Item|Step|Note|What)|1\s)/.test(l) || /^[A-Z0-9]/.test(l));
+      if (isList) {
+        return (
+          <ul key={block} className="mt-6 space-y-2 text-lg leading-8 opacity-80 list-none">
+            {lines.map((line, i) => (
+              <li key={i} className="pl-0">
+                {line.replace(/^([\*\-\•]\s*|\d+[\.\)\]]\s*)/, "")}
+              </li>
+            ))}
+          </ul>
+        );
+      }
+      return (
+        <p key={block} className="mt-6 text-lg leading-8 opacity-75 whitespace-pre-wrap break-words">
+          {trimmed}
+        </p>
+      );
+    });
+
   return (
     <Layout>
       <div style={themeVars} className="bg-[var(--event-background)] text-[var(--event-foreground)]">
@@ -76,18 +102,31 @@ export default function EventPage() {
               <h1 className="font-display text-4xl font-bold tracking-tight md:text-6xl">{event.title}</h1>
             </div>
           </div>
+
+          {/* Second / alternate poster — only for regular events, completely hidden when absent (no empty space) */}
+          {hasCover2 && (
+            <div className="mt-6 overflow-hidden rounded-[var(--event-radius)]">
+              <img
+                src={event.coverImage2 as string}
+                alt={`${event.title} — alternate`}
+                className="aspect-[16/8] w-full object-cover sm:aspect-[16/6]"
+              />
+            </div>
+          )}
         </section>
-        <div className="container grid gap-12 py-12 lg:grid-cols-[1fr_360px] lg:gap-20">
+        <div className="container grid gap-10 py-10 md:gap-12 md:py-12 lg:grid-cols-[1fr_360px] lg:gap-20">
           <div>
-            <div className="grid gap-5 rounded-[var(--event-radius)] p-5 sm:grid-cols-3" style={{ backgroundColor: "var(--event-card)" }}>
+            <div className="grid gap-4 rounded-[var(--event-radius)] p-5 sm:gap-5 sm:grid-cols-3 sm:p-6" style={{ backgroundColor: "var(--event-card)" }}>
               {event.date && <Info icon={CalendarDays} label="Date" value={formatEventDate(event.date)} />}
               {event.startTime && event.endTime && (
                 <Info icon={Clock3} label="Time" value={`${formatEventTime(event.startTime)} – ${formatEventTime(event.endTime)}`} />
               )}
               {event.venue && <Info icon={MapPin} label="Location" value={`${event.venue}, ${event.city}`} />}
             </div>
-            <div className="mt-10">
-              <p className="text-lg leading-8 opacity-75">{event.description}</p>
+            <div className="mt-8 md:mt-10">
+              {event.description && descriptionHTML.length
+                ? descriptionHTML
+                : <p className="text-lg leading-8 opacity-60">More details coming soon.</p>}
               <div className="mt-8 flex flex-wrap gap-2">
                 {event.policies.map((policy) => (
                   <span key={policy} className="rounded-full border border-current/15 px-3 py-1.5 text-xs font-medium opacity-70">
