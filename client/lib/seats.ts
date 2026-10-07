@@ -1,6 +1,15 @@
 /**
  * Seat map data for cinema events: the fixed layout, which seats are taken,
- * live updates, and the 20-minute hold a buyer gets while they pay.
+ * live updates, and the hold a buyer gets while they pay.
+ *
+ * Storage strategy:
+ *   - SESSIONSTORAGE: the hold TOKEN (security sensitive; SHA-256 hashed before DB)
+ *   - LOCALSTORAGE: the SeatOrder (chosen seats / tier / price / expires) so a buyer
+ *                   can leave to pay via the M-Pesa app, close the tab, reopen, and
+ *                   not have to start from zero.
+ * Seats are NEVER locked permanently until the buyer submits a paid order
+ * ("I've Completed Payment" button). The 20-minute soft hold is a courtesy lock;
+ * expired holds are removed server-side by migration 014 RPC (see supabase/014_*.sql).
  */
 import { supabase } from "./supabase";
 
@@ -80,22 +89,37 @@ export function subscribeToSeatReservations(eventId: string, callback: () => voi
   };
 }
 
-// ── Hold token: identifies this browser tab's holds. Only its hash is stored. ──
+// ── Hold token: identifies this browser's holds. Only its hash is stored.
+// Written to sessionStorage first; also mirrored in localStorage so the same
+// buyer can close a tab, open a new one, and keep their in-flight seat lock.
+// (Abandoned locks expire server-side via migration 014 anyway; this only
+//  makes the buyer's own life easier when they leave for M-Pesa.)
 const TOKEN_KEY = "hili-seat-token";
+const TOKEN_KEY_LOCAL = "hili-seat-token-local";
 let memoryToken: string | null = null;
 
 export function getHoldToken(): string {
   try {
-    let token = sessionStorage.getItem(TOKEN_KEY);
+    let token = sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY_LOCAL);
     if (!token || token.length < 16) {
       token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
       sessionStorage.setItem(TOKEN_KEY, token);
+      try { localStorage.setItem(TOKEN_KEY_LOCAL, token); } catch { /* private mode */ }
+    } else {
+      // make sure session has a copy too
+      try { sessionStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
     }
     return token;
   } catch {
     if (!memoryToken) memoryToken = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
     return memoryToken;
   }
+}
+
+export function clearHoldToken(): void {
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(TOKEN_KEY_LOCAL); } catch { /* ignore */ }
+  memoryToken = null;
 }
 
 // One flat shape (not a union): the project compiles with strictNullChecks off,
@@ -146,6 +170,18 @@ export async function releaseSeats(eventId: string): Promise<void> {
   await supabase.rpc("release_seats", { p_event: eventId, p_token: getHoldToken() });
 }
 
+export async function releaseExpiredHolds(eventId?: string): Promise<void> {
+  if (!supabase) return;
+  // Client-side RPC: drop ALL expired/abandoned/cancelled seat holds
+  // (p_event=null cleans every event, p_event set cleans only the given one)
+  try {
+    await supabase.rpc("release_expired_seat_holds", { p_event: eventId ?? null });
+  } catch {
+    // fall back to the existing 24h cleanup endpoint
+    try { await fetch("/api/x/cleanup-stale-orders", { method: "POST" }); } catch { /* ignore */ }
+  }
+}
+
 // ── The buyer's current selection, kept between pages ──────────────────────────
 export interface SeatOrder {
   eventId: string;
@@ -157,33 +193,36 @@ export interface SeatOrder {
   expiresAt: string;
 }
 
-const orderKey = (slug: string) => `hili-seat-order-${slug}`;
+const orderKeySession = (slug: string) => `hili-seat-order-${slug}`;
+const orderKeyLocal    = (slug: string) => `hili-seat-order-local-${slug}`;
 
 export function saveSeatOrder(order: SeatOrder) {
-  try {
-    sessionStorage.setItem(orderKey(order.slug), JSON.stringify(order));
-  } catch {
-    /* private mode: the buyer will have to pick again */
-  }
+  const payload = JSON.stringify(order);
+  try { sessionStorage.setItem(orderKeySession(order.slug), payload); } catch { /* ignore */ }
+  try { localStorage.setItem(orderKeyLocal(order.slug), payload); }   catch { /* private mode: user picks again */ }
 }
 
 export function loadSeatOrder(slug: string): SeatOrder | null {
+  let raw: string | null = null;
   try {
-    const raw = sessionStorage.getItem(orderKey(slug));
-    if (!raw) return null;
+    raw = sessionStorage.getItem(orderKeySession(slug))
+       || localStorage.getItem(orderKeyLocal(slug));
+  } catch { /* ignore */ }
+  if (!raw) return null;
+  try {
     const order = JSON.parse(raw) as SeatOrder;
-    return Array.isArray(order.seatIds) && order.seatIds.length ? order : null;
+    if (!Array.isArray(order.seatIds) || order.seatIds.length === 0) return null;
+    // Mirror back: if only local had it, keep the session cache warm too.
+    try { sessionStorage.setItem(orderKeySession(slug), raw); } catch { /* ignore */ }
+    return order;
   } catch {
     return null;
   }
 }
 
 export function clearSeatOrder(slug: string) {
-  try {
-    sessionStorage.removeItem(orderKey(slug));
-  } catch {
-    /* ignore */
-  }
+  try { sessionStorage.removeItem(orderKeySession(slug)); } catch { /* ignore */ }
+  try { localStorage.removeItem(orderKeyLocal(slug)); }   catch { /* ignore */ }
 }
 
 export function holdIsActive(order: SeatOrder | null): boolean {

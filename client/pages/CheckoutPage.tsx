@@ -16,7 +16,7 @@ import PlaceholderPage from "@/components/PlaceholderPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatPrice, getEventBySlug, salesStatus, type HiliEvent } from "@/lib/events";
-import { clearSeatOrder, getHoldToken, holdIsActive, loadSeatOrder } from "@/lib/seats";
+import { clearSeatOrder, getHoldToken, holdIsActive, loadSeatOrder, releaseExpiredHolds } from "@/lib/seats";
 import type { PaymentConfig } from "@shared/api";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -242,6 +242,11 @@ export default function CheckoutPage() {
       }
     };
     void load();
+    // Buyer came back from the M-Pesa app → fire the new 014 cleanup RPC so
+    // any stale / expired seat holds free up immediately. Safe to call many
+    // times; fails over to the old 24h endpoint when the migration isn't
+    // deployed yet.
+    void releaseExpiredHolds().catch(() => undefined);
     return () => { active = false; };
   }, [slug]);
 

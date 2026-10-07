@@ -546,10 +546,23 @@ app.post('/api/admin/upload-poster2', async (req, res) => {
 });
 
 // Best-effort: cancel stale cinema orders and release seats on seat page access
-// (idempotent, safe to call repeatedly; a Supabase cron is not required)
+// (idempotent, safe to call repeatedly; a Supabase cron is not required).
+// The new `release_expired_seat_holds` RPC (migration 014) also frees:
+//   - expired anonymous 20min holds that never turned into orders
+//   - seat locks attached to admin-cancelled orders
+//   - seat locks for orders pending/processing > 24h
+// Fallback: if migration 014 is not deployed yet, run only the legacy cleanup;
+// it cannot fail the request.
 app.post('/api/x/cleanup-stale-orders', async (_req, res) => {
   try {
     const supabase = getSupabase();
+    // 1. Release every kind of stale / cancelled / expired seat hold first.
+    // (Do not fail if the new RPC isn't deployed yet.)
+    try {
+      await supabase.rpc('release_expired_seat_holds', { p_event: null });
+    } catch { /* ignore when migration 014 not deployed yet */ }
+
+    // 2. Cancel stale cinema orders (also calls release_expired_seat_holds).
     const { data, error } = await supabase.rpc('cleanup_stale_cinema_orders', { p_hours: 24 });
     if (error) return res.status(500).json({ error: error.message });
     res.json({ cancelled: data ?? 0 });

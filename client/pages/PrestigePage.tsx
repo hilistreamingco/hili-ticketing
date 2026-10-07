@@ -272,29 +272,13 @@ function OrderModal({
   const handleSend = async () => {
     if (!order) return;
 
-    // Open Gmail IMMEDIATELY while we still have the user's click
-    // (browsers block window.open in async callbacks)
-    const { gmailComposeUrl, ticketEmailBody, ticketEmailSubject } = await import("@/lib/ticketGenerator");
-    const eventName = order.event?.name || "Event";
-    const gmailWindow = window.open(
-      gmailComposeUrl(
-        order.purchaser_email,
-        ticketEmailSubject(eventName),
-        ticketEmailBody({
-          purchaserName: order.purchaser_name,
-          eventName,
-          eventDate: order.event?.event_date,
-          startTime: order.event?.start_time,
-          venue: order.event?.venue,
-          tickets: (order.tickets ?? []).map((t) => ({
-            ticketNumber: t.ticket_number,
-            attendeeName: t.attendee_name,
-            seatLabel: t.seat_label,
-          })),
-        }),
-      ),
-      "_blank",
-    );
+    // 1) Open an empty window SYNCHRONOUSLY inside the click gesture so browser
+    // popup blockers cannot kill it. We later redirect this window to the Gmail
+    // compose URL once we've generated + downloaded the PDF. If popup blockers
+    // still eat this, `gmailWindow` will be null and we fall back to opening
+    // Gmail as a regular tab navigation at the end (last resort).
+    let gmailWindow: Window | null = null;
+    try { gmailWindow = window.open("about:blank", "_blank"); } catch { /* ignore */ }
 
     setActionState("sending");
     try {
@@ -303,14 +287,13 @@ function OrderModal({
       setOrder(fresh);
 
       if (!fresh.tickets || fresh.tickets.length === 0) {
-        showToast("No tickets found - confirm payment first to generate tickets.", "error");
+        showToast("No tickets found — confirm payment first, then generate tickets.", "error");
         gmailWindow?.close();
-        setActionState("idle");
         return;
       }
 
+      // --- STEP A: Download ticket PDF(s) FIRST -----------------------------
       const { generateTicketPDF, ticketFilename } = await import("@/lib/ticketGenerator");
-
       const pdfBlob = await generateTicketPDF(
         fresh.tickets.map((ticket) => ({
           ticketNumber: ticket.ticket_number,
@@ -328,22 +311,53 @@ function OrderModal({
         })),
       );
 
-      // Download PDF
       const url = URL.createObjectURL(pdfBlob);
       const a = document.createElement("a");
       a.href = url;
       a.download = ticketFilename(fresh.event?.name || "Event", fresh.order_number);
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
 
-      showToast("PDF downloaded & Gmail opened — attach the PDF, send, then press “Mark as Sent”.", "success");
+      // --- STEP B: Open Gmail compose window with To, Subject, Body ----------
+      const { gmailComposeUrl, ticketEmailBody, ticketEmailSubject } = await import("@/lib/ticketGenerator");
+      const eventName = fresh.event?.name || "Event";
+      const composeUrl = gmailComposeUrl(
+        fresh.purchaser_email,
+        ticketEmailSubject(eventName),
+        ticketEmailBody({
+          purchaserName: fresh.purchaser_name,
+          eventName,
+          eventDate: fresh.event?.event_date,
+          startTime: fresh.event?.start_time,
+          venue: fresh.event?.venue,
+          tickets: (fresh.tickets ?? []).map((t) => ({
+            ticketNumber: t.ticket_number,
+            attendeeName: t.attendee_name,
+            seatLabel: t.seat_label,
+          })),
+        }),
+      );
+
+      if (gmailWindow) {
+        try { gmailWindow.location.href = composeUrl; }
+        catch {
+          // Window may have been closed; fall back to a fresh open.
+          try { window.open(composeUrl, "_blank"); } catch { /* ignore */ }
+        }
+      } else {
+        // Popup blocker prevented the initial open — best-effort fallback:
+        // open the Gmail URL in the same gesture we have left.
+        try { window.open(composeUrl, "_blank"); } catch { /* ignore */ }
+      }
+
+      showToast("PDF downloaded & Gmail opened — attach the PDF and send, then press Mark as Sent.", "success");
       onRefresh();
     } catch (err) {
       console.error("Send ticket error:", err);
       gmailWindow?.close();
-      showToast(err instanceof Error ? err.message : "Could not generate tickets", "error");
+      showToast(err instanceof Error ? err.message : "Could not generate or send tickets", "error");
     } finally {
       setActionState("idle");
     }

@@ -22,6 +22,8 @@ import {
   holdIsActive,
   holdSeats,
   loadSeatOrder,
+  releaseExpiredHolds,
+  releaseSeats,
   saveSeatOrder,
   subscribeToSeatReservations,
   type Seat,
@@ -70,15 +72,16 @@ export default function SeatSelectionPage() {
   }, [event?.seatLayoutId]);
 
   // Taken seats: live, with a slow refetch so expired holds free up on screen.
-  // Also, on the very first refresh, fire a best-effort cleanup: cinema orders
-  // that have been pending for >24h get cancelled and their seats are released
-  // for other buyers (RPC is idempotent, safe to call many times).
+  // Also fires a best-effort cleanup of ALL expired / cancelled / stale pending
+  // seat holds (migration 014) so abandoned seats are freed even when no
+  // other buyer comes along.
   const eventId = event?.id;
   const firstCleanup = useRef(false);
   const refreshTaken = useCallback(async () => {
     if (!eventId) return;
     if (!firstCleanup.current) {
       firstCleanup.current = true;
+      void releaseExpiredHolds(eventId).catch(() => undefined);
       void fetch("/api/x/cleanup-stale-orders", { method: "POST" }).catch(() => undefined);
     }
     setTaken(await getTakenSeats(eventId));
@@ -88,21 +91,37 @@ export default function SeatSelectionPage() {
     if (!eventId) return;
     void refreshTaken();
     const unsub = subscribeToSeatReservations(eventId, () => void refreshTaken());
-    const timer = setInterval(() => void refreshTaken(), 30_000);
+    const timer = setInterval(() => {
+      void releaseExpiredHolds(eventId).catch(() => undefined);
+      void refreshTaken();
+    }, 30_000);
     return () => { unsub(); clearInterval(timer); };
   }, [eventId, refreshTaken]);
 
-  // Coming back from the next page: the seats are still held for this buyer
+  // Coming back from another page (or reopening the browser after leaving it to pay via
+  // the M-Pesa app): if the seat hold is still valid, reuse it exactly and
+  // render the seats as the user's; if the hold expired, at least restore the
+  // SELECTED set so they don't have to retap every single seat from scratch.
   useEffect(() => {
     if (restored.current || !slug || !layout) return;
     restored.current = true;
     const prior = loadSeatOrder(slug);
-    if (prior && holdIsActive(prior)) {
+    if (!prior || !Array.isArray(prior.seatIds) || prior.seatIds.length === 0) return;
+    if (holdIsActive(prior)) {
       setSelected(prior.seatIds);
       setMine(new Set(prior.seatIds));
       setTierId(prior.tierId);
+    } else {
+      // hold expired: still restore the selection as *selected*, just not
+      // as held by them anymore (requires a new Continue click to lock)
+      setSelected(prior.seatIds);
+      setMine(new Set());
+      setTierId(prior.tierId);
+      // Also nudge the server to free this abandoned lock immediately so
+      // the map doesn't claim anything is still "taken".
+      if (eventId) void releaseSeats(eventId).catch(() => undefined);
     }
-  }, [slug, layout]);
+  }, [slug, layout, eventId]);
 
   const seatById = useMemo(() => new Map((layout?.seats ?? []).map((s) => [s.id, s])), [layout]);
 
