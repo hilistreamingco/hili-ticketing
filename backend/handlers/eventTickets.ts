@@ -31,7 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .select('*')
       .eq('event_id', id)
       .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: true });
+      .order('price_kes', { ascending: true }); // ticket_types has no created_at column
 
     if (error) throw error;
 
