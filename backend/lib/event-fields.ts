@@ -6,7 +6,7 @@ type Body = Record<string, any>;
 export type Cleaned = { fields: Record<string, unknown>; error?: string };
 
 const STATUSES = ['draft', 'published', 'archived'];
-const TYPES = ['general', 'cinema'];
+const TYPES = ['general', 'cinema', 'gate'];
 const MODES = ['tiers', 'seats_taken'];
 const OVERRIDES = ['auto', 'open', 'closed'];
 export const PREFIX_RE = /^[A-Z0-9]{2,8}$/;
@@ -20,7 +20,7 @@ export function cleanEventFields(body: Body): Cleaned {
     f[k] = body[k] === null || body[k] === '' ? null : String(body[k]);
   };
   ['short_description', 'description', 'poster_path', 'poster2_path', 'venue', 'address', 'city',
-    'venue_map_url', 'event_date', 'start_time', 'end_time'].forEach(text);
+    'venue_map_url', 'event_date', 'start_time', 'end_time', 'gate_price_text'].forEach(text);
 
   if (body.name !== undefined) {
     const name = String(body.name ?? '').trim();

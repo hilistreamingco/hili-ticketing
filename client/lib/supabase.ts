@@ -9,7 +9,7 @@ export const supabase: SupabaseClient | null = url && anonKey ? createClient(url
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type EventType = "general" | "cinema";
+export type EventType = "general" | "cinema" | "gate";
 export type PricingMode = "tiers" | "seats_taken";
 export type SalesOverride = "auto" | "open" | "closed";
 
@@ -34,6 +34,7 @@ export type AdminEvent = {
   theme: Record<string, unknown>;
   settings: Record<string, unknown>;
   event_type: EventType;
+  gate_price_text: string | null;
   seat_layout_id: string | null;
   ticket_prefix: string | null;
   max_seats_per_order: number;

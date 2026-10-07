@@ -1,10 +1,13 @@
-import { ArrowLeft, AtSign, Mail, Phone } from "lucide-react";
+import { ArrowLeft, AtSign, Mail, MessageCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import Layout from "@/components/layout/Layout";
 
 // No form on purpose: messages go straight to the team's own email, so the site has nothing to send,
 // store or keep running for this page.
 const EMAIL = "hilistreaming.co@gmail.com";
+const WHATSAPP_NUMBER = "254796429978";
+const WHATSAPP_DISPLAY = "0796 429 978";
+const WHATSAPP_MESSAGE = encodeURIComponent("Hi Hili! I have a question about your events/tickets.");
 
 export default function ContactPage() {
   return (
@@ -27,11 +30,16 @@ export default function ContactPage() {
               <span className="mt-0.5 block font-display text-lg font-bold">{EMAIL}</span>
             </span>
           </a>
-          <a href="tel:0796429978" className="flex items-center gap-4 rounded-3xl border border-border bg-card p-6 shadow-card transition-colors hover:border-foreground/40">
-            <Phone className="h-6 w-6 shrink-0 text-primary" />
+          <a
+            href={`https://wa.me/${WHATSAPP_NUMBER}?text=${WHATSAPP_MESSAGE}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-4 rounded-3xl border border-border bg-card p-6 shadow-card transition-colors hover:border-foreground/40"
+          >
+            <MessageCircle className="h-6 w-6 shrink-0 text-primary" />
             <span>
-              <span className="block text-xs font-semibold uppercase tracking-widest text-muted-foreground">Phone</span>
-              <span className="mt-0.5 block font-display text-lg font-bold">0796 429 978</span>
+              <span className="block text-xs font-semibold uppercase tracking-widest text-muted-foreground">WhatsApp</span>
+              <span className="mt-0.5 block font-display text-lg font-bold">{WHATSAPP_DISPLAY}</span>
             </span>
           </a>
           <a href="https://www.instagram.com/madebyhili/?hl=en" target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-3xl border border-border bg-card p-6 shadow-card transition-colors hover:border-foreground/40">

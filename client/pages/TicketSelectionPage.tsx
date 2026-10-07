@@ -50,6 +50,8 @@ export default function TicketSelectionPage() {
 
   // Cinema events are booked on the seat map
   if (event.eventType === "cinema") return <Navigate to={`/seats/${event.slug}`} replace />;
+  // Gate events: no online checkout. Send back to event details.
+  if (event.eventType === "gate") return <Navigate to={`/events/${event.slug}`} replace />;
 
   const status = salesStatus(event);
 

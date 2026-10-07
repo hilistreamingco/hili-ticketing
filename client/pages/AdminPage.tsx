@@ -344,7 +344,7 @@ function EventsTab({ selectedId, onSelect }: { selectedId: string | null; onSele
               {ev.event_date ?? "No date yet"}{ev.start_time ? ` · ${ev.start_time.slice(0, 5)}` : ""}
             </p>
             <p className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold text-black/45">
-              <span className="rounded-full bg-black/5 px-2 py-0.5">{ev.event_type === "cinema" ? "Cinema · seat map" : "General"}</span>
+              <span className="rounded-full bg-black/5 px-2 py-0.5">{ev.event_type === "cinema" ? "Cinema · seat map" : ev.event_type === "gate" ? "Gate · tickets at venue" : "General · online tickets"}</span>
               {ev.ticket_prefix && <span className="rounded-full bg-black/5 px-2 py-0.5 font-mono">{ev.ticket_prefix}</span>}
             </p>
           </button>
@@ -370,7 +370,8 @@ type Draft = {
   venue: string; address: string; city: string;
   event_date: string; start_time: string; end_time: string; venue_map_url: string;
   status: AdminEvent["status"];
-  event_type: EventType; ticket_prefix: string; max_seats_per_order: string; pricing_mode: PricingMode;
+  event_type: EventType; gate_price_text: string;
+  ticket_prefix: string; max_seats_per_order: string; pricing_mode: PricingMode;
   sales_close_at: string; sales_override: SalesOverride;
 };
 
@@ -379,7 +380,8 @@ const emptyDraft: Draft = {
   venue: "", address: "", city: "",
   event_date: "", start_time: "", end_time: "", venue_map_url: "",
   status: "draft",
-  event_type: "general", ticket_prefix: "", max_seats_per_order: "6", pricing_mode: "tiers",
+  event_type: "general", gate_price_text: "",
+  ticket_prefix: "", max_seats_per_order: "6", pricing_mode: "tiers",
   sales_close_at: "", sales_override: "auto",
 };
 
@@ -397,6 +399,7 @@ function draftFrom(ev: AdminEvent): Draft {
     venue_map_url: ev.venue_map_url ?? "",
     status: ev.status,
     event_type: ev.event_type ?? "general",
+    gate_price_text: ev.gate_price_text ?? "",
     ticket_prefix: ev.ticket_prefix ?? "",
     max_seats_per_order: String(ev.max_seats_per_order ?? 6),
     pricing_mode: ev.pricing_mode ?? "tiers",
@@ -481,6 +484,7 @@ function EventEditor({
     status: draft.status,
     poster_path: poster || null,
     poster2_path: poster2 || null,
+    gate_price_text: draft.gate_price_text || null,
     event_type: draft.event_type,
     ticket_prefix: draft.ticket_prefix.trim().toUpperCase() || null,
     max_seats_per_order: Number(draft.max_seats_per_order) || 6,
@@ -650,29 +654,29 @@ function EventEditor({
           </div>
           <p className="px-1 text-xs text-black/35">PNG, JPEG or WebP, up to 5 MB.</p>
 
-          {/* Second poster — only for regular (general) events, not cinema */}
+          {/* Second / alternate poster — landscape (horizontal). Visible for General and Gate events; hidden for Cinema (different event layout). */}
           {draft.event_type !== "cinema" && (
             <div className="pt-1">
-              <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-black/45">Alternate poster</p>
+              <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-black/45">Alternate poster · landscape / banner</p>
               <div onClick={() => !uploading2 && file2Ref.current?.click()}
                 className="relative cursor-pointer overflow-hidden rounded-2xl border-2 border-dashed border-black/15 bg-white hover:border-black/30">
-                <div className="flex aspect-[3/4] items-center justify-center bg-black/3">
+                <div className="flex aspect-[16/6] items-center justify-center bg-black/3">
                   {poster2
-                    ? <img src={poster2} alt="Alternate poster" className="h-full w-full object-cover" />
-                    : <div className="flex flex-col items-center gap-2 text-black/30"><Upload className="h-7 w-7" /><p className="text-xs">Upload second poster</p></div>}
+                    ? <img src={poster2} alt="Alternate banner" className="h-full w-full object-cover" />
+                    : <div className="flex flex-col items-center gap-2 text-black/30"><Upload className="h-7 w-7" /><p className="text-xs">Upload wide banner (horizontal)</p></div>}
                 </div>
                 {uploading2 && (
                   <div className="absolute inset-0 flex items-center justify-center bg-white/80">
                     <Loader2 className="h-6 w-6 animate-spin text-black/50" />
                   </div>
                 )}
-                <p className="p-3 text-center text-xs font-semibold text-black/40">{poster2 ? "Click to replace" : "Optional"}</p>
+                <p className="p-3 text-center text-xs font-semibold text-black/40">{poster2 ? "Click to replace" : "Optional · shown under the main poster"}</p>
                 <input ref={file2Ref} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e => void doUpload2(e.target.files?.[0])} />
               </div>
               {poster2 && (
                 <button
                   type="button"
-                  onClick={() => { setPoster2(""); if (row) void saveAdminEvent({ id: row.id, poster2_path: null }).then(() => { onChanged(); showMsg("Removed second poster.", true); }).catch(() => undefined); }}
+                  onClick={() => { setPoster2(""); if (row) void saveAdminEvent({ id: row.id, poster2_path: null }).then(() => { onChanged(); showMsg("Removed alternate poster.", true); }).catch(() => undefined); }}
                   className="mt-2 w-full rounded-xl border border-black/10 px-3 py-1.5 text-xs font-semibold text-black/50 hover:border-black/25 hover:text-black/80"
                 >
                   Remove alternate poster
@@ -715,10 +719,28 @@ function EventEditor({
               <Segmented<EventType>
                 value={draft.event_type}
                 onChange={v => set("event_type", v)}
-                options={[{ value: "general", label: "General (open entry)" }, { value: "cinema", label: "Cinema (seat map)" }]}
+                options={[
+                  { value: "general", label: "General (online tickets)" },
+                  { value: "cinema", label: "Cinema (seat map)" },
+                  { value: "gate", label: "Gate (tickets at the gate)" },
+                ]}
               />
-              <p className="mt-2 text-xs text-black/40">Cannot be changed once the event has orders.</p>
+              <p className="mt-2 text-xs text-black/40">
+                {draft.event_type === "gate"
+                  ? "No online checkout: the right-hand sidebar shows 'Tickets sold at the gate' with the price line you type below."
+                  : "Cannot be changed once the event has orders."}
+              </p>
             </div>
+
+            {draft.event_type === "gate" && (
+              <div className="mt-5 rounded-2xl border border-black/10 bg-black/[0.02] p-4">
+                <F label="Gate price / label" value={draft.gate_price_text}
+                   onChange={v => set("gate_price_text", v)}
+                   placeholder="e.g. Free · KES 1,000 · KES 500 – 1,500 · At the gate"
+                   hint="Whatever you type shows up on the event page. Leave blank for a default message." />
+              </div>
+            )}
+
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <F label="Ticket prefix" value={draft.ticket_prefix} onChange={v => set("ticket_prefix", v.toUpperCase())}
                 placeholder="Auto from the name" hint="2–8 letters or digits, e.g. SBTB gives SBTB001, SBTB002…" />
@@ -743,39 +765,42 @@ function EventEditor({
             )}
           </div>
 
-          {/* Sales window */}
-          <div className="rounded-3xl border border-black/10 bg-white p-6">
-            <h3 className="font-display text-xl font-bold">Sales</h3>
-            <div className="mt-5">
-              <label className="block text-sm font-semibold">
-                Sales close <span className="font-normal text-black/40">(Nairobi time)</span>
-                <Input className="mt-2 max-w-xs" type="datetime-local" value={draft.sales_close_at} onChange={e => set("sales_close_at", e.target.value)} />
-              </label>
-              <p className="mt-2 text-xs text-black/40">
-                Leave empty for no closing time. After it, buyers see “Sales closed”. Tiers can also have their own dates.
-              </p>
+          {/* Sales window — hidden for gate events because there is no online sales window */}
+          {draft.event_type !== "gate" && (
+            <div className="rounded-3xl border border-black/10 bg-white p-6">
+              <h3 className="font-display text-xl font-bold">Sales</h3>
+              <div className="mt-5">
+                <label className="block text-sm font-semibold">
+                  Sales close <span className="font-normal text-black/40">(Nairobi time)</span>
+                  <Input className="mt-2 max-w-xs" type="datetime-local" value={draft.sales_close_at} onChange={e => set("sales_close_at", e.target.value)} />
+                </label>
+                <p className="mt-2 text-xs text-black/40">
+                  Leave empty for no closing time. After it, buyers see “Sales closed”. Tiers can also have their own dates.
+                </p>
+              </div>
+              <div className="mt-5">
+                <p className="mb-2 text-sm font-semibold">Sales control</p>
+                <Segmented<SalesOverride>
+                  value={draft.sales_override}
+                  onChange={v => set("sales_override", v)}
+                  options={[{ value: "auto", label: "Automatic" }, { value: "open", label: "Force open" }, { value: "closed", label: "Force closed" }]}
+                />
+                <p className="mt-2 text-xs text-black/40">
+                  {draft.sales_override === "auto" && "Sales stop at the closing time, or when tickets or seats run out."}
+                  {draft.sales_override === "open" && "Keeps selling after the closing time. Tier dates and quantities still apply."}
+                  {draft.sales_override === "closed" && "Stops all sales now, whatever the dates say."}
+                </p>
+              </div>
             </div>
-            <div className="mt-5">
-              <p className="mb-2 text-sm font-semibold">Sales control</p>
-              <Segmented<SalesOverride>
-                value={draft.sales_override}
-                onChange={v => set("sales_override", v)}
-                options={[{ value: "auto", label: "Automatic" }, { value: "open", label: "Force open" }, { value: "closed", label: "Force closed" }]}
-              />
-              <p className="mt-2 text-xs text-black/40">
-                {draft.sales_override === "auto" && "Sales stop at the closing time, or when tickets or seats run out."}
-                {draft.sales_override === "open" && "Keeps selling after the closing time. Tier dates and quantities still apply."}
-                {draft.sales_override === "closed" && "Stops all sales now, whatever the dates say."}
-              </p>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Tiers or brackets */}
-      {draft.event_type === "cinema" && draft.pricing_mode === "seats_taken"
-        ? <BracketEditor eventId={row?.id ?? null} />
-        : <TierEditor eventId={row?.id ?? null} tiers={tiers} setTiers={setTiers} />}
+      {/* Tiers or brackets (gate events don't have either) */}
+      {draft.event_type === "gate" ? null :
+        draft.event_type === "cinema" && draft.pricing_mode === "seats_taken"
+          ? <BracketEditor eventId={row?.id ?? null} />
+          : <TierEditor eventId={row?.id ?? null} tiers={tiers} setTiers={setTiers} />}
     </div>
   );
 }

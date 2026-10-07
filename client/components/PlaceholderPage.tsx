@@ -2,17 +2,20 @@ import { Link } from "react-router-dom";
 import { LucideIcon, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Layout from "@/components/layout/Layout";
+import type { ReactNode } from "react";
 
 interface PlaceholderPageProps {
   title: string;
   description: string;
   icon?: LucideIcon;
+  action?: ReactNode;
 }
 
 export default function PlaceholderPage({
   title,
   description,
   icon: Icon = Sparkles,
+  action,
 }: PlaceholderPageProps) {
   return (
     <Layout>
@@ -24,13 +27,19 @@ export default function PlaceholderPage({
           {title}
         </h1>
         <p className="mt-3 max-w-md text-muted-foreground">{description}</p>
-        <p className="mt-1 max-w-md text-sm text-muted-foreground">
-          Keep prompting to describe what you'd like on this page and we'll
-          build it out.
-        </p>
-        <Button asChild className="mt-8">
-          <Link to="/">Back to Discover</Link>
-        </Button>
+        {action ? (
+          <div className="mt-8">{action}</div>
+        ) : (
+          <>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">
+              Keep prompting to describe what you'd like on this page and we'll
+              build it out.
+            </p>
+            <Button asChild className="mt-8">
+              <Link to="/">Back to Discover</Link>
+            </Button>
+          </>
+        )}
       </div>
     </Layout>
   );

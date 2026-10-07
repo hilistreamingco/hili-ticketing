@@ -70,6 +70,20 @@ export default function AttendeePage() {
     return <PlaceholderPage title="Event not found" description="This event is no longer available." />;
   }
 
+  if (event.eventType === "gate") {
+    return (
+      <PlaceholderPage
+        title="Tickets sold at the gate"
+        description={`This event is sold at the entrance. See you there on the day — ${event.venue || "the venue"}.`}
+        action={
+          <Link to={`/events/${event.slug}`} className="inline-flex items-center gap-2 font-semibold underline">
+            <ArrowLeft className="h-4 w-4" /> Back to event details
+          </Link>
+        }
+      />
+    );
+  }
+
   if (isCinema) {
     if (!seatOrder) {
       return (

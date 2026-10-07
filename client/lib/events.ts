@@ -71,7 +71,8 @@ export interface HiliEvent {
   popular?: boolean;
   attendeeCount: number;
   // multi-event / cinema / sales
-  eventType: "general" | "cinema";
+  eventType: "general" | "cinema" | "gate";
+  gatePriceText: string | null;
   pricingMode: "tiers" | "seats_taken";
   seatLayoutId: string | null;
   maxSeatsPerOrder: number;
@@ -185,8 +186,9 @@ function mapEvent(ev: any, overview: SalesOverview, listState?: SalesState): Hil
     ticketTypes,
     popular: false,
     attendeeCount: ticketTypes.reduce((sum, t) => sum + t.quantitySold, 0),
-    eventType: (ev.event_type as "general" | "cinema") ?? "general",
-    pricingMode,
+  eventType: (ev.event_type as "general" | "cinema" | "gate") ?? "general",
+  gatePriceText: (ev.gate_price_text as string | null) ?? null,
+  pricingMode,
     seatLayoutId: (ev.seat_layout_id as string) ?? null,
     maxSeatsPerOrder: (ev.max_seats_per_order as number) ?? 6,
     salesCloseAt: (overview?.sales_close_at ?? ev.sales_close_at ?? null) as string | null,
@@ -331,6 +333,10 @@ export function priceForNextSeat(brackets: PriceBracket[], seatsTaken: number): 
 }
 
 export function startingPrice(event: HiliEvent): string {
+  if (event.eventType === "gate") {
+    if (event.gatePriceText) return event.gatePriceText;
+    return "Tickets sold at the gate";
+  }
   if (event.pricingMode === "seats_taken" && event.eventType === "cinema") {
     if (!event.brackets.length) return "TBA";
     return formatPrice(Math.min(...event.brackets.map((b) => b.price)));
@@ -345,8 +351,11 @@ export function ticketsLeft(ticketType: TicketType): number | null {
   return ticketType.remaining;
 }
 
-/** Text and tone for the sales state shown on cards and the event page. */
+/** Text and tone for the sales state shown on cards and the event page. Gate events never open the checkout. */
 export function salesStatus(event: HiliEvent): { label: string; canBuy: boolean } {
+  if (event.eventType === "gate") {
+    return { label: "Tickets sold at the gate", canBuy: false };
+  }
   switch (event.salesState) {
     case "open":
       return { label: event.salesCloseAt ? `Sales close ${formatNairobi(event.salesCloseAt)}` : "On sale", canBuy: true };

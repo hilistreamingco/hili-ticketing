@@ -114,6 +114,7 @@ export default function SeatSelectionPage() {
     );
   }
   if (!event) return <PlaceholderPage title="Event not found" description="This event is no longer available." />;
+  if (event.eventType === "gate") return <Navigate to={`/events/${event.slug}`} replace />;
   if (event.eventType !== "cinema") return <Navigate to={`/tickets/${event.slug}`} replace />;
 
   const status = salesStatus(event);

@@ -35,7 +35,7 @@ export default function EventCard({
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
         <span className="absolute left-3 top-3 rounded-full bg-background/90 px-3 py-1 text-xs font-semibold text-foreground backdrop-blur">
-          {event.eventType === "cinema" ? "Cinema" : event.category}
+          {event.eventType === "cinema" ? "Cinema" : event.eventType === "gate" ? "Hili Event · Gate" : event.category}
         </span>
         <span className="absolute right-3 top-3 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
           {formatEventDate(event.date)}
