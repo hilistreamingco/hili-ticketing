@@ -57,10 +57,10 @@ export default function Index() {
       {/* Hero — site introduction with the ticket image as an atmospheric background */}
       <section className="relative isolate overflow-hidden bg-[#0b0b0b] text-white">
         <div className="absolute inset-0 -z-10">
-          <img src={HERO_BG} alt="" className="h-full w-full object-cover opacity-30" />
-          <div className="absolute inset-0 bg-[#0b0b0b]/55" />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0b]/70 via-[#0b0b0b]/30 to-[#0b0b0b]" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0b0b0b] via-[#0b0b0b]/40 to-transparent" />
+          <img src={HERO_BG} alt="" className="h-full w-full object-cover opacity-60" />
+          <div className="absolute inset-0 bg-[#0b0b0b]/30" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0b]/50 via-transparent to-[#0b0b0b]" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0b0b0b] via-[#0b0b0b]/30 to-transparent" />
         </div>
         <div className="container flex min-h-[calc(100vh-4rem)] items-center py-16 lg:py-20">
           <div className="max-w-2xl">
@@ -68,8 +68,8 @@ export default function Index() {
               <span className="h-1.5 w-1.5 rounded-full bg-[#c1ff1a]" />
               <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80">Hili Events</span>
             </div>
-            <h1 className="mt-6 font-display text-5xl font-bold leading-[.95] tracking-tight sm:text-7xl">
-              Your seat to <span className="text-[#c1ff1a]">unforgettable</span> nights.
+            <h1 className="mt-6 font-display text-4xl font-bold leading-[.95] tracking-tight break-words [word-break:normal] sm:text-7xl">
+              Your seat to <span className="text-[#c1ff1a] whitespace-nowrap">unforgettable</span> nights.
             </h1>
             <p className="mt-6 max-w-lg text-lg text-white/70">
               From cinema screenings to afterparties and everything in between — discover events, grab your tickets, and show up ready to make memories.
