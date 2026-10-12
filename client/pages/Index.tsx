@@ -15,12 +15,7 @@ import {
 } from "@/lib/events";
 import { getCampaigns, type Campaign } from "@/lib/campaigns";
 
-const HERO_BG =
-  "https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=" +
-  encodeURIComponent(
-    "vibrant outdoor music festival at night, fireworks exploding in the sky, neon green and purple lights, crowd silhouettes with raised hands, cinematic wide shot, atmospheric glow, high energy"
-  ) +
-  "&image_size=landscape_16_9";
+const HERO_BG = "/hero-ticket.jpg.jpeg";
 
 export default function Index() {
   const [events, setEvents] = useState<HiliEvent[]>([]);
@@ -59,17 +54,19 @@ export default function Index() {
 
   return (
     <Layout>
-      {/* Hero — site introduction with a generated festival/fireworks background */}
+      {/* Hero — site introduction with the ticket image as an atmospheric background */}
       <section className="relative isolate overflow-hidden bg-[#0b0b0b] text-white">
         <div className="absolute inset-0 -z-10">
-          <img src={HERO_BG} alt="" className="h-full w-full object-cover opacity-40" />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0b]/70 via-[#0b0b0b]/40 to-[#0b0b0b]" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0b0b0b] via-transparent to-transparent" />
+          <img src={HERO_BG} alt="" className="h-full w-full object-cover opacity-30" />
+          <div className="absolute inset-0 bg-[#0b0b0b]/55" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0b]/70 via-[#0b0b0b]/30 to-[#0b0b0b]" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0b0b0b] via-[#0b0b0b]/40 to-transparent" />
         </div>
         <div className="container flex min-h-[calc(100vh-4rem)] items-center py-16 lg:py-20">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#c1ff1a]/30 bg-[#c1ff1a]/10 px-3 py-1 text-xs font-semibold text-[#c1ff1a]">
-              <Sparkles className="h-3.5 w-3.5" /> Hili Ticketing
+            <div className="inline-flex items-center gap-2.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#c1ff1a]" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80">Hili Events</span>
             </div>
             <h1 className="mt-6 font-display text-5xl font-bold leading-[.95] tracking-tight sm:text-7xl">
               Your seat to <span className="text-[#c1ff1a]">unforgettable</span> nights.
