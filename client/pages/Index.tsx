@@ -15,7 +15,7 @@ import {
 } from "@/lib/events";
 import { getCampaigns, type Campaign } from "@/lib/campaigns";
 
-const HERO_BG = "/hero-ticket.jpg.jpeg";
+const HERO_BG = "/hero-ticketing.jpg.jpeg";
 
 export default function Index() {
   const [events, setEvents] = useState<HiliEvent[]>([]);
