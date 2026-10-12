@@ -92,6 +92,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           max_seats_per_order: fields.max_seats_per_order ?? 6,
           sales_close_at: fields.sales_close_at ?? null,
           sales_override: fields.sales_override ?? 'auto',
+          campaign_id: fields.campaign_id ?? null,
         })
         .select()
         .single();

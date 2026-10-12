@@ -66,6 +66,9 @@ export function cleanEventFields(body: Body): Cleaned {
   }
   if (body.theme !== undefined) f.theme = body.theme;
   if (body.settings !== undefined) f.settings = body.settings;
+  if (body.campaign_id !== undefined) {
+    f.campaign_id = body.campaign_id === null || body.campaign_id === '' ? null : String(body.campaign_id);
+  }
 
   return { fields: f };
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, CalendarDays, Clock3, Loader2, MapPin, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarDays, Clock3, Loader2, MapPin, Sparkles, Ticket } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import EventCard from "@/components/EventCard";
 import { Button } from "@/components/ui/button";
@@ -8,23 +8,32 @@ import {
   getEvents,
   groupEventsByDate,
   isPastEvent,
-  salesStatus,
   subscribeToEvents,
   formatEventDate,
   formatEventTime,
   type HiliEvent,
 } from "@/lib/events";
+import { getCampaigns, type Campaign } from "@/lib/campaigns";
+
+const HERO_BG =
+  "https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=" +
+  encodeURIComponent(
+    "vibrant outdoor music festival at night, fireworks exploding in the sky, neon green and purple lights, crowd silhouettes with raised hands, cinematic wide shot, atmospheric glow, high energy"
+  ) +
+  "&image_size=landscape_16_9";
 
 export default function Index() {
   const [events, setEvents] = useState<HiliEvent[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const rows = await getEvents();
+      const [rows, camps] = await Promise.all([getEvents(), getCampaigns()]);
       if (active) {
         setEvents(rows);
+        setCampaigns(camps);
         setLoading(false);
       }
     };
@@ -43,75 +52,93 @@ export default function Index() {
     );
   }
 
-  // The list is already sorted: upcoming events soonest first, then past ones.
-  const hero = events[0];
-
-  if (!hero) {
-    return (
-      <Layout>
-        <section className="bg-[#d8f54a] text-[#0b0b0b]">
-          <div className="container flex min-h-[60vh] items-center justify-center py-20">
-            <div className="text-center">
-              <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-full bg-[#0b0b0b]">
-                <Sparkles className="h-10 w-10 text-[#d8f54a]" />
-              </div>
-              <h1 className="font-display text-5xl font-bold">Hili is busy cooking up something.</h1>
-              <p className="mt-4 max-w-md mx-auto text-lg text-black/60">An event schedule will be up sometime soon. Check back later — you won't want to miss it.</p>
-            </div>
-          </div>
-        </section>
-
-        <HiliEventsCalendar events={[]} />
-      </Layout>
-    );
-  }
-
-  const heroStatus = salesStatus(hero);
-  const heroIsGate = hero.eventType === "gate";
-  const heroLabel = heroIsGate
-    ? (hero.gatePriceText || "Gate entry event")
-    : heroStatus.label;
-  const others = events.slice(1);
-  const groups = groupEventsByDate(others);
+  // Events that belong to a campaign are surfaced through the campaign page, not
+  // the standalone "More events" grid.
+  const standalone = events.filter((e) => !e.campaignId);
+  const groups = groupEventsByDate(standalone);
 
   return (
     <Layout>
-      <section className="bg-[#d8f54a] text-[#0b0b0b]">
-        <div className="container grid min-h-[calc(100vh-4rem)] items-center gap-12 py-14 lg:grid-cols-[.9fr_1.1fr] lg:py-20">
-          <div className="max-w-xl">
-            <p className="text-[10px] font-semibold uppercase tracking-[.3em]">
-              {isPastEvent(hero) ? "Hili presented" : "Hili presents"}
-            </p>
-            <h1 className="mt-6 font-display text-5xl font-bold leading-[.92] tracking-[-.07em] sm:text-7xl md:text-8xl">
-              {hero.title}
-            </h1>
-            <p className="mt-7 max-w-sm font-display text-base font-bold leading-7 text-black">
-              {hero.shortDescription}
-            </p>
-            <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-black/60">{heroLabel}</p>
-            <Button asChild size="lg" variant="secondary" className="mt-6">
-              <Link to={`/events/${hero.slug}`}>
-                View event details <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-          <div className="relative mx-auto w-full max-w-[500px]">
-            <div className="overflow-hidden rounded-[2rem] bg-[#171717] shadow-2xl">
-              <img
-                src={hero.coverImage}
-                alt={`${hero.title} poster`}
-                className="aspect-[4/5] w-full object-cover"
-              />
+      {/* Hero — site introduction with a generated festival/fireworks background */}
+      <section className="relative isolate overflow-hidden bg-[#0b0b0b] text-white">
+        <div className="absolute inset-0 -z-10">
+          <img src={HERO_BG} alt="" className="h-full w-full object-cover opacity-40" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0b]/70 via-[#0b0b0b]/40 to-[#0b0b0b]" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0b0b0b] via-transparent to-transparent" />
+        </div>
+        <div className="container flex min-h-[calc(100vh-4rem)] items-center py-16 lg:py-20">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#c1ff1a]/30 bg-[#c1ff1a]/10 px-3 py-1 text-xs font-semibold text-[#c1ff1a]">
+              <Sparkles className="h-3.5 w-3.5" /> Hili Ticketing
             </div>
-            {hero.date && (
-              <div className="absolute -bottom-5 -right-4 rounded-2xl bg-[#f4f1ea] px-5 py-4 shadow-xl sm:-right-7">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-black/45">Event date</p>
-                <p className="mt-1 font-display text-sm font-bold">{formatEventDate(hero.date)}</p>
-              </div>
-            )}
+            <h1 className="mt-6 font-display text-5xl font-bold leading-[.95] tracking-tight sm:text-7xl">
+              Your seat to <span className="text-[#c1ff1a]">unforgettable</span> nights.
+            </h1>
+            <p className="mt-6 max-w-lg text-lg text-white/70">
+              From cinema screenings to afterparties and everything in between — discover events, grab your tickets, and show up ready to make memories.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Button asChild size="lg" className="bg-[#c1ff1a] text-black hover:bg-[#a8e616]">
+                <Link to="/events">
+                  Browse events <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              {campaigns.length > 0 && (
+                <Button asChild size="lg" variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10">
+                  <a href="#campaigns">
+                    <Ticket className="mr-2 h-4 w-4" /> View campaigns
+                  </a>
+                </Button>
+              )}
+            </div>
+            <div className="mt-12 flex flex-wrap gap-6 text-sm text-white/50">
+              <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4 text-[#c1ff1a]/70" /> Cinema & live events</span>
+              <span className="inline-flex items-center gap-2"><Ticket className="h-4 w-4 text-[#c1ff1a]/70" /> Instant e-tickets</span>
+              <span className="inline-flex items-center gap-2"><MapPin className="h-4 w-4 text-[#c1ff1a]/70" /> Nairobi & beyond</span>
+            </div>
           </div>
         </div>
       </section>
+
+      {campaigns.length > 0 && (
+        <section id="campaigns" className="bg-[#f4f1ea]">
+          <div className="container py-16 md:py-20">
+            <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-black/45">Event campaigns</p>
+            <h2 className="mt-5 max-w-md font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+              Multi-event experiences.
+            </h2>
+            <p className="mt-3 max-w-lg text-muted-foreground">
+              Pick a campaign to see every event inside it — cinema, afterparty and more — and book the ones you want.
+            </p>
+            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {campaigns.map((c) => (
+                <Link
+                  key={c.id}
+                  to={`/campaign/${c.slug}`}
+                  className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-transform duration-300 hover:-translate-y-1"
+                >
+                  {c.posterPath ? (
+                    <div className="aspect-[4/3] overflow-hidden">
+                      <img src={c.posterPath} alt={c.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                    </div>
+                  ) : (
+                    <div className="flex aspect-[4/3] items-center justify-center bg-primary/10">
+                      <Sparkles className="h-10 w-10 text-primary" />
+                    </div>
+                  )}
+                  <div className="flex flex-1 flex-col p-5">
+                    <h3 className="font-display text-xl font-bold leading-snug">{c.name}</h3>
+                    {c.shortDescription && <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{c.shortDescription}</p>}
+                    <p className="mt-auto pt-4 text-sm font-semibold text-primary group-hover:underline">
+                      View campaign <ArrowRight className="ml-1 inline h-3.5 w-3.5" />
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {groups.length > 0 && (
         <section className="bg-[#f4f1ea]">

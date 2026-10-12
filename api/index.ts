@@ -11,6 +11,7 @@ import meHandler from '../backend/handlers/me.js';
 import uploadPosterHandler from '../backend/handlers/uploadPoster.js';
 import orderManualHandler from '../backend/handlers/orderManual.js';
 import paymentConfigHandler from '../backend/handlers/paymentConfig.js';
+import campaignHandler from '../backend/handlers/campaign.js';
 
 // ONE serverless function serves the whole API. Vercel's free plan allows 12 functions in total
 // and the API had grown past that, so every route now lives behind this file (vercel.json sends
@@ -446,6 +447,41 @@ app.get('/api/x/admin/attendees', async (req, res) => {
   }
 });
 
+// ── Site settings (maintenance mode, etc.) ──────────────────────────────────
+// The public site reads site_settings directly via the anon key (RLS allows
+// SELECT). This endpoint is for admins to upsert values.
+app.put('/api/x/admin/site-settings', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const patch = req.body || {};
+    if (typeof patch !== 'object' || Array.isArray(patch)) {
+      return res.status(400).json({ error: 'Send a JSON object of key → value' });
+    }
+    const keys = Object.keys(patch);
+    if (keys.length === 0 || keys.length > 20) {
+      return res.status(400).json({ error: 'Send between 1 and 20 settings' });
+    }
+
+    const supabase = getSupabase();
+    const rows = keys.map((k) => ({
+      key: k,
+      value: patch[k],
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+      .from('site_settings')
+      .upsert(rows, { onConflict: 'key' });
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not save settings' });
+  }
+});
+
 // Cinema price brackets (pricing_mode = 'seats_taken')
 app.get('/api/x/admin/brackets', async (req, res) => {
   try {
@@ -578,6 +614,10 @@ app.all('/api/admin/events', asHandler(eventsHandler));
 app.all('/api/admin/tickets/:id', asHandler(tierHandler));
 app.all('/api/admin/tickets', asHandler(tiersHandler));
 app.all('/api/admin/upload-poster', asHandler(uploadPosterHandler));
+app.all('/api/admin/campaigns/:id/events/:eventId', asHandler(campaignHandler));
+app.all('/api/admin/campaigns/:id/events', asHandler(campaignHandler));
+app.all('/api/admin/campaigns/:id', asHandler(campaignHandler));
+app.all('/api/admin/campaigns', asHandler(campaignHandler));
 app.all('/api/orders/manual', asHandler(orderManualHandler));
 app.all('/api/payment-config/:eventSlug', asHandler(paymentConfigHandler));
 

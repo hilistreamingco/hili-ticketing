@@ -41,6 +41,7 @@ export type AdminEvent = {
   pricing_mode: PricingMode;
   sales_close_at: string | null;
   sales_override: SalesOverride;
+  campaign_id: string | null;
 };
 
 export type SalesState = "open" | "not_started" | "sold_out" | "closed";
@@ -533,4 +534,62 @@ export function subscribeToPrestigeOrders(onChange: () => void) {
     .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, onChange)
     .subscribe();
   return () => { void supabase.removeChannel(channel); };
+}
+
+// ── Campaigns (admin CRUD) ──────────────────────────────────────────────────
+
+export type AdminCampaign = {
+  id: string;
+  slug: string;
+  name: string;
+  short_description: string | null;
+  description: string | null;
+  poster_path: string | null;
+  status: "draft" | "published" | "archived";
+  sort_order: number;
+  events?: AdminEvent[];
+};
+
+export async function getAdminCampaigns(): Promise<AdminCampaign[]> {
+  const data = await adminGet<{ campaigns: AdminCampaign[] }>("/api/admin/campaigns");
+  return data.campaigns;
+}
+
+export async function createAdminCampaign(input: Partial<AdminCampaign>): Promise<AdminCampaign> {
+  const data = await adminPost<{ campaign: AdminCampaign }>("/api/admin/campaigns", input);
+  return data.campaign;
+}
+
+export async function saveAdminCampaign(id: string, input: Partial<AdminCampaign>): Promise<AdminCampaign> {
+  const data = await adminPut<{ campaign: AdminCampaign }>(`/api/admin/campaigns/${id}`, input);
+  return data.campaign;
+}
+
+export async function deleteAdminCampaign(id: string): Promise<void> {
+  await adminDelete(`/api/admin/campaigns/${id}`);
+}
+
+export async function attachEventToCampaign(campaignId: string, eventId: string): Promise<void> {
+  await adminPost(`/api/admin/campaigns/${campaignId}/events`, { eventId });
+}
+
+export async function detachEventFromCampaign(campaignId: string, eventId: string): Promise<void> {
+  await adminDelete(`/api/admin/campaigns/${campaignId}/events/${eventId}`);
+}
+
+// ── Site settings (maintenance mode etc.) ───────────────────────────────────
+
+export type SiteSettings = Record<string, unknown>;
+
+export async function getSiteSettings(): Promise<SiteSettings> {
+  if (!supabase) return {};
+  const { data, error } = await supabase.from("site_settings").select("key, value");
+  if (error || !data) return {};
+  const out: SiteSettings = {};
+  for (const row of data) out[row.key] = row.value;
+  return out;
+}
+
+export async function saveSiteSettings(patch: SiteSettings): Promise<void> {
+  await adminPut("/api/x/admin/site-settings", patch);
 }

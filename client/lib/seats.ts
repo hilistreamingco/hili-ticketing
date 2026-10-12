@@ -225,6 +225,22 @@ export function clearSeatOrder(slug: string) {
   try { localStorage.removeItem(orderKeyLocal(slug)); }   catch { /* ignore */ }
 }
 
+/** Remove a single seat (by id) from the stored order, keeping the rest. */
+export function removeSeatFromOrder(slug: string, seatId: string): SeatOrder | null {
+  const order = loadSeatOrder(slug);
+  if (!order) return null;
+  const idx = order.seatIds.indexOf(seatId);
+  if (idx < 0) return order;
+  order.seatIds = order.seatIds.filter((id) => id !== seatId);
+  order.labels = order.labels.filter((_, i) => i !== idx);
+  if (order.seatIds.length === 0) {
+    clearSeatOrder(slug);
+    return null;
+  }
+  saveSeatOrder(order);
+  return order;
+}
+
 export function holdIsActive(order: SeatOrder | null): boolean {
   return Boolean(order) && Date.parse(order!.expiresAt) > Date.now();
 }

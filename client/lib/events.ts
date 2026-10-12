@@ -81,6 +81,7 @@ export interface HiliEvent {
   brackets: PriceBracket[];
   seatsTotal: number;
   seatsTaken: number;
+  campaignId: string | null;
 }
 
 export const categories = [
@@ -111,7 +112,7 @@ function localTierState(t: { sales_start: string | null; sales_end: string | nul
   return "on_sale";
 }
 
-function mapEvent(ev: any, overview: SalesOverview, listState?: SalesState): HiliEvent {
+export function mapEvent(ev: any, overview: SalesOverview, listState?: SalesState): HiliEvent {
   const tierRows = ((ev.ticket_types ?? []) as any[])
     .slice()
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.price_kes - b.price_kes);
@@ -196,6 +197,7 @@ function mapEvent(ev: any, overview: SalesOverview, listState?: SalesState): Hil
     brackets,
     seatsTotal: overview?.seats_total ?? 0,
     seatsTaken: overview?.seats_taken ?? 0,
+    campaignId: ev.campaign_id ?? null,
   };
 }
 

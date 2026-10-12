@@ -16,7 +16,7 @@ import PlaceholderPage from "@/components/PlaceholderPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatPrice, getEventBySlug, salesStatus, type HiliEvent } from "@/lib/events";
-import { clearSeatOrder, getHoldToken, holdIsActive, loadSeatOrder, releaseExpiredHolds } from "@/lib/seats";
+import { clearSeatOrder, getHoldToken, holdIsActive, loadSeatOrder, releaseExpiredHolds, removeSeatFromOrder } from "@/lib/seats";
 import type { PaymentConfig } from "@shared/api";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -222,12 +222,21 @@ export default function CheckoutPage() {
   const [mpesaName, setMpesaName] = useState(names[0] || "");
   const [phone, setPhone] = useState("");
   const [txCode, setTxCode] = useState("");
-  const [status, setStatus] = useState<"idle" | "submitting" | "done" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "submitting" | "retrying" | "done" | "error">("idle");
   const [orderNumber, setOrderNumber] = useState("");
   const [doneSeats, setDoneSeats] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  // One idempotency key per checkout mount. Reused on every retry so the
+  // database never creates two orders for one payment, even if the user
+  // double-clicks or the network drops and they hit Try again.
+  const idempotencyKey = useRef(
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
   const remainingMs = useCountdown(seatOrder?.expiresAt);
 
   // Load event

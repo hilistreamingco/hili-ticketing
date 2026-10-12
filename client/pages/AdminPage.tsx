@@ -20,6 +20,7 @@ import {
   Upload,
   Users,
   AlertTriangle,
+  Unlink,
 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,14 @@ import {
   getEventSalesOverview,
   savePrestigePaymentConfig,
   fetchPaymentConfig,
+  getAdminCampaigns,
+  attachEventToCampaign,
+  detachEventFromCampaign,
+  createAdminCampaign,
+  saveAdminCampaign,
+  deleteAdminCampaign,
+  getSiteSettings,
+  saveSiteSettings,
   supabase,
   type AdminEvent,
   type AdminTicketType,
@@ -52,6 +61,7 @@ import {
   type EventType,
   type PricingMode,
   type SalesOverride,
+  type AdminCampaign,
 } from "@/lib/supabase";
 import { formatNairobi, isoToNairobiInput, nairobiInputToIso } from "@/lib/time";
 
@@ -268,14 +278,306 @@ function Overview() {
           The Prestige/BeerBirds team handles payment verification and ticket delivery in their own dashboard.
         </p>
       </div>
+
+      <MaintenanceToggle />
+
+      <CampaignsSection />
     </div>
   );
 }
+
+// Toggles the public "page under construction" smokescreen. When ON, every
+// public route is replaced by the maintenance page; admin routes stay open.
+function MaintenanceToggle() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSiteSettings().then(s => setOn(s.maintenance_mode === true)).catch(() => setOn(false));
+  }, []);
+
+  const toggle = async () => {
+    if (on === null) return;
+    const next = !on;
+    setSaving(true); setErr(null);
+    try {
+      await saveSiteSettings({ maintenance_mode: next });
+      setOn(next);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not update");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className={`mt-8 rounded-3xl border p-6 ${on ? "border-amber-300 bg-amber-50" : "border-black/10 bg-white"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-black/40">Site maintenance mode</p>
+          <p className="mt-2 font-display text-lg font-bold">
+            {on ? "Site is under construction" : "Site is live"}
+          </p>
+          <p className="mt-1 max-w-lg text-sm text-black/50">
+            {on
+              ? "Visitors see a 'check back soon' page. Admin and Prestige dashboards stay reachable so you can turn this off."
+              : "Turn this on before making big changes so visitors don't hit a half-finished site."}
+          </p>
+        </div>
+        <Button
+          onClick={() => void toggle()}
+          disabled={on === null || saving}
+          className={on ? "bg-[#0b0b0b] text-white hover:bg-black/80" : "bg-[#c1e51a] text-black hover:bg-[#b1d410]"}
+        >
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          {on ? "Take site live" : "Put site under construction"}
+        </Button>
+      </div>
+      {err && <Banner ok={false} text={err} />}
+    </div>
+  );
+}
+
 function Metric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="rounded-2xl border border-black/10 bg-white p-5">
       <p className="text-sm text-black/50">{label}</p>
       <p className={`mt-3 font-display text-2xl font-bold ${accent ? "text-primary" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+// ── Campaigns: list + editor (section on the Overview page) ───────────────────
+function CampaignsSection() {
+  const [campaigns, setCampaigns] = useState<AdminCampaign[]>([]);
+  const [events, setEvents] = useState<AdminEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [camps, evs] = await Promise.all([getAdminCampaigns(), getAdminEvents()]);
+      setCampaigns(camps);
+      setEvents(evs);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load campaigns");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const createCampaign = async () => {
+    const name = window.prompt("Campaign name (e.g. Hili Halloween Campaign):");
+    if (!name || !name.trim()) return;
+    try {
+      await createAdminCampaign({ name: name.trim(), status: "draft" });
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not create campaign");
+    }
+  };
+
+  const removeCampaign = async (c: AdminCampaign) => {
+    if ((c.events?.length ?? 0) > 0) {
+      alert("Remove all events from this campaign before deleting it.");
+      return;
+    }
+    if (!confirm(`Delete campaign "${c.name}"?`)) return;
+    try {
+      await deleteAdminCampaign(c.id);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not delete campaign");
+    }
+  };
+
+  const attachEvent = async (campaignId: string) => {
+    const used = new Set(campaigns.flatMap(c => c.events?.map(e => e.id) ?? []));
+    const available = events.filter(e => !used.has(e.id) || e.campaign_id === campaignId);
+    if (available.length === 0) {
+      alert("No standalone events available. Create one in the Events tab first.");
+      return;
+    }
+    const choice = window.prompt(
+      `Attach an event to this campaign.\n\nPaste the event ID from the list below:\n\n${available.map(e => `${e.id}  —  ${e.name}`).join("\n")}`,
+      ""
+    );
+    if (!choice) return;
+    const eventId = choice.trim();
+    try {
+      await attachEventToCampaign(campaignId, eventId);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not attach event");
+    }
+  };
+
+  const detachEvent = async (campaignId: string, eventId: string) => {
+    try {
+      await detachEventFromCampaign(campaignId, eventId);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not detach event");
+    }
+  };
+
+  return (
+    <div className="mt-10 max-w-5xl border-t border-black/10 pt-10">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-sm text-black/50">Group up to 3 related events under one page</p>
+          <h2 className="mt-1 font-display text-3xl font-bold">Campaigns</h2>
+        </div>
+        <Button onClick={createCampaign} className="bg-[#c1e51a] text-black hover:bg-[#b1d410]">
+          <Plus className="mr-2 h-4 w-4" /> New campaign
+        </Button>
+      </div>
+
+      {error && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+          <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</span>
+          <Button size="sm" variant="outline" onClick={() => { setLoading(true); void refresh(); }}>Retry</Button>
+        </div>
+      )}
+
+      {loading && <div className="mt-6 flex items-center gap-2 text-sm text-black/40"><Loader2 className="h-4 w-4 animate-spin" /> Loading campaigns…</div>}
+
+      {!loading && !error && campaigns.length === 0 && (
+        <p className="mt-6 rounded-2xl border border-dashed border-black/15 bg-white p-6 text-center text-sm text-black/45">
+          No campaigns yet. Click “New campaign” to group related events (e.g. a cinema screening + afterparty).
+        </p>
+      )}
+
+      <div className="mt-6 space-y-4">
+        {campaigns.map(c => {
+          const camEvents = c.events ?? [];
+          const isEditing = editingId === c.id;
+          return (
+            <div key={c.id} className="rounded-2xl border border-black/10 bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-display text-lg font-bold">{c.name}</h3>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${STATUS_STYLE[c.status]}`}>{c.status}</span>
+                  </div>
+                  {c.short_description && <p className="mt-1 text-sm text-black/50">{c.short_description}</p>}
+                  <p className="mt-2 text-xs text-black/40">/campaign/{c.slug} · {camEvents.length}/3 events</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant="outline" onClick={() => setEditingId(isEditing ? null : c.id)}>
+                    {isEditing ? "Close" : "Edit"}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-50 hover:text-red-700" onClick={() => removeCampaign(c)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {isEditing && (
+                <CampaignEditor campaign={c} onSaved={() => { setEditingId(null); void refresh(); }} />
+              )}
+
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-black/40">Events in this campaign</p>
+                  {camEvents.length < 3 && (
+                    <Button size="sm" variant="outline" onClick={() => attachEvent(c.id)}>
+                      <Plus className="mr-1 h-3.5 w-3.5" /> Attach event
+                    </Button>
+                  )}
+                </div>
+                {camEvents.length === 0 ? (
+                  <p className="mt-2 text-sm text-black/40">No events attached yet.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {camEvents.map(e => (
+                      <div key={e.id} className="flex items-center justify-between gap-3 rounded-xl bg-black/[0.03] px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold truncate">{e.name}</p>
+                          <p className="text-xs text-black/40">{e.event_type} · {e.event_date ?? "No date"}</p>
+                        </div>
+                        <Button size="sm" variant="ghost" className="text-black/40 hover:text-red-600" onClick={() => detachEvent(c.id, e.id)} title="Detach from campaign">
+                          <Unlink className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {camEvents.length >= 3 && (
+                  <p className="mt-2 text-xs text-amber-700">Maximum of 3 events per campaign reached.</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CampaignEditor({ campaign, onSaved }: { campaign: AdminCampaign; onSaved: () => void }) {
+  const [draft, setDraft] = useState({
+    name: campaign.name,
+    short_description: campaign.short_description ?? "",
+    description: campaign.description ?? "",
+    poster_path: campaign.poster_path ?? "",
+    status: campaign.status,
+    sort_order: String(campaign.sort_order ?? 0),
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!draft.name.trim()) { setErr("Campaign name is required."); return; }
+    setSaving(true); setErr(null);
+    try {
+      await saveAdminCampaign(campaign.id, {
+        name: draft.name.trim(),
+        short_description: draft.short_description || null,
+        description: draft.description || null,
+        poster_path: draft.poster_path || null,
+        status: draft.status,
+        sort_order: Number(draft.sort_order) || 0,
+      });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-4 rounded-2xl bg-black/[0.02] p-4">
+      <F label="Campaign name" value={draft.name} onChange={v => setDraft(d => ({ ...d, name: v }))} />
+      <F label="Short description" value={draft.short_description} onChange={v => setDraft(d => ({ ...d, short_description: v }))} />
+      <label className="block text-sm font-semibold">
+        Full description
+        <Textarea className="mt-2 min-h-[80px]" value={draft.description} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} />
+      </label>
+      <F label="Poster URL (optional)" value={draft.poster_path} onChange={v => setDraft(d => ({ ...d, poster_path: v }))} hint="A landscape image shown on the campaign card." />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <p className="mb-2 text-sm font-semibold">Status</p>
+          <Segmented<AdminCampaign["status"]>
+            value={draft.status}
+            onChange={v => setDraft(d => ({ ...d, status: v }))}
+            options={[{ value: "draft", label: "Draft" }, { value: "published", label: "Published" }, { value: "archived", label: "Archived" }]}
+          />
+        </div>
+        <F label="Sort order" value={draft.sort_order} onChange={v => setDraft(d => ({ ...d, sort_order: v }))} type="number" hint="Lower numbers appear first." />
+      </div>
+      {err && <Banner ok={false} text={err} />}
+      <Button onClick={save} disabled={saving} className="bg-[#c1e51a] text-black hover:bg-[#b1d410]">
+        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+        Save campaign
+      </Button>
     </div>
   );
 }
@@ -373,6 +675,7 @@ type Draft = {
   event_type: EventType; gate_price_text: string;
   ticket_prefix: string; max_seats_per_order: string; pricing_mode: PricingMode;
   sales_close_at: string; sales_override: SalesOverride;
+  campaign_id: string;
 };
 
 const emptyDraft: Draft = {
@@ -383,6 +686,7 @@ const emptyDraft: Draft = {
   event_type: "general", gate_price_text: "",
   ticket_prefix: "", max_seats_per_order: "6", pricing_mode: "tiers",
   sales_close_at: "", sales_override: "auto",
+  campaign_id: "",
 };
 
 function draftFrom(ev: AdminEvent): Draft {
@@ -405,6 +709,7 @@ function draftFrom(ev: AdminEvent): Draft {
     pricing_mode: ev.pricing_mode ?? "tiers",
     sales_close_at: isoToNairobiInput(ev.sales_close_at),
     sales_override: ev.sales_override ?? "auto",
+    campaign_id: ev.campaign_id ?? "",
   };
 }
 
@@ -430,6 +735,7 @@ function EventEditor({
   const [poster2, setPoster2] = useState("");
   const [tiers, setTiers] = useState<AdminTicketType[]>([]);
   const [overview, setOverview] = useState<EventSalesOverview>(null);
+  const [campaigns, setCampaigns] = useState<AdminCampaign[]>([]);
   const [loading, setLoading] = useState(Boolean(eventId));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -468,6 +774,10 @@ function EventEditor({
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    getAdminCampaigns().then(setCampaigns).catch(() => undefined);
+  }, []);
+
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft(d => ({ ...d, [k]: v }));
 
   const buildPayload = () => ({
@@ -491,6 +801,7 @@ function EventEditor({
     pricing_mode: draft.event_type === "cinema" ? draft.pricing_mode : ("tiers" as PricingMode),
     sales_close_at: nairobiInputToIso(draft.sales_close_at),
     sales_override: draft.sales_override,
+    campaign_id: draft.campaign_id || null,
   });
 
   // Returns the saved event, or null. A brand-new event is only created when
@@ -710,6 +1021,24 @@ function EventEditor({
               Full description
               <Textarea className="mt-2 min-h-[100px]" value={draft.description} onChange={e => set("description", e.target.value)} placeholder="Event details, lineup, what to expect…" />
             </label>
+            <div className="mt-5">
+              <label className="block text-sm font-semibold">
+                Event campaign <span className="font-normal text-black/40">(optional)</span>
+              </label>
+              <select
+                className="mt-2 h-10 w-full rounded-xl border border-black/15 bg-white px-3 text-sm"
+                value={draft.campaign_id}
+                onChange={e => set("campaign_id", e.target.value)}
+              >
+                <option value="">Standalone event (not in a campaign)</option>
+                {campaigns.map(c => (
+                  <option key={c.id} value={c.id}>{c.name} · {c.status}</option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-black/40">
+                Group up to 3 related events (cinema + afterparty, etc.) under one campaign page on the site.
+              </p>
+            </div>
           </div>
 
           {/* Ticketing */}

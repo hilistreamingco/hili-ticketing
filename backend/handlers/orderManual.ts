@@ -60,7 +60,25 @@ function mapDbError(res: VercelResponse, error: { message?: string; code?: strin
   if (message.includes('NO_PRICE_CONFIGURED')) {
     return fail(res, 409, 'NO_PRICE_CONFIGURED', 'Ticket prices have not been set up for this event yet.');
   }
-  if (/BAD_|DUPLICATE_SEAT|TIER_REQUIRED|TIER_NOT_FOUND|EVENT_NOT_SEATED/.test(message)) {
+  if (message.includes('EVENT_NOT_FOUND')) {
+    return fail(res, 404, 'NOT_FOUND', 'Event not found.');
+  }
+  if (message.includes('TIER_NOT_FOUND') || message.includes('TIER_HIDDEN')) {
+    return fail(res, 404, 'NOT_FOUND', 'Ticket type not found.');
+  }
+  if (message.includes('BAD_QUANTITY')) {
+    return fail(res, 400, 'BAD_QUANTITY', 'Please choose the right number of tickets for that type.');
+  }
+  if (message.includes('BAD_EMAIL')) {
+    return fail(res, 400, 'BAD_REQUEST', 'Please enter a valid email address.');
+  }
+  if (message.includes('BAD_ATTENDEES')) {
+    return fail(res, 400, 'BAD_REQUEST', 'Please give a name for each ticket.');
+  }
+  if (message.includes('BAD_MPESA_NAME')) {
+    return fail(res, 400, 'BAD_REQUEST', 'Please enter the name on your M-Pesa account.');
+  }
+  if (/BAD_|DUPLICATE_SEAT|TIER_REQUIRED|EVENT_NOT_SEATED/.test(message)) {
     return fail(res, 400, 'BAD_REQUEST', 'Your order could not be read. Please start again from the event page.');
   }
   console.error('Order creation error:', error);
@@ -90,6 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       mpesaName,
       mpesaTransactionCode,
       attendeeNames,
+      idempotencyKey,
     } = body;
 
     // ── Validate the basics ────────────────────────────────────────────────
@@ -117,6 +136,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const buyerName = String(purchaserName || names[0]).trim().slice(0, 120);
     const email = purchaserEmail.trim().toLowerCase();
     const code = String(mpesaTransactionCode ?? '').trim().toUpperCase().slice(0, 20) || null;
+    const idemKey =
+      typeof idempotencyKey === 'string' && idempotencyKey.trim()
+        ? idempotencyKey.trim().slice(0, 120)
+        : null;
 
     const supabase = getServiceClient();
     if (!supabase) {
@@ -157,6 +180,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         p_mpesa_name: payerName,
         p_mpesa_code: code,
         p_ticket_type_id: typeof ticketTypeId === 'string' ? ticketTypeId : null,
+        p_idempotency_key: idemKey,
       });
       if (error) return mapDbError(res, error);
 
@@ -170,78 +194,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         tierName = tier?.name ?? null;
       }
     } else {
-      // ── General event: tier by id; price, window and stock checked here ────
+      // ── General event: atomic DB RPC does all checks+writes in one txn ─────
+      // This eliminates the TOCTOU race between the old JS sold-count check
+      // and the two-step inserts, plus rules out orphan orders. The RPC also
+      // locks the ticket_types row (SELECT … FOR UPDATE) so two concurrent
+      // buyers for the last N tickets of the same tier are serialized.
       if (!ticketTypeId || typeof ticketTypeId !== 'string') {
         return fail(res, 400, 'BAD_REQUEST', 'Please choose a ticket type.');
       }
 
-      const { data: tier, error: tierError } = await supabase
-        .from('ticket_types')
-        .select('id, name, price_kes, quantity_total, min_per_order, max_per_order')
-        .eq('id', ticketTypeId)
-        .eq('event_id', event.id)
-        .maybeSingle();
-      if (tierError || !tier) {
-        return fail(res, 404, 'NOT_FOUND', 'Ticket type not found');
-      }
-
-      const quantity = names.length;
-      if (quantity < tier.min_per_order || quantity > tier.max_per_order) {
-        return fail(res, 400, 'BAD_QUANTITY', `You can buy between ${tier.min_per_order} and ${tier.max_per_order} of this ticket.`);
-      }
-
-      const { data: eventState } = await supabase.rpc('event_sales_state', { p_event: event.id, p_grace: GRACE });
-      if (eventState !== 'open') {
-        return fail(res, 409, 'SALES_CLOSED', 'Sales for this event are closed.', { state: eventState });
-      }
-      const { data: tierState } = await supabase.rpc('tier_state', { p_tier: tier.id, p_grace: GRACE });
-      if (tierState === 'sold_out') {
-        return fail(res, 409, 'TIER_SOLD_OUT', 'That ticket type has sold out.');
-      }
-      if (tierState !== 'on_sale') {
-        return fail(res, 409, 'TIER_NOT_ON_SALE', 'That ticket type is not on sale right now.');
-      }
-      if (tier.quantity_total > 0) {
-        const { data: sold } = await supabase.rpc('ticket_type_sold', { p_type: tier.id });
-        if (typeof sold === 'number' && sold + quantity > tier.quantity_total) {
-          return fail(res, 409, 'TIER_SOLD_OUT', 'There are not enough tickets left of that type.');
-        }
-      }
-
-      amountKes = tier.price_kes * quantity;
-      tierName = tier.name;
-      orderNumber = generateOrderNumber();
-
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          order_number: orderNumber,
-          event_id: event.id,
-          purchaser_name: buyerName,
-          purchaser_email: email,
-          purchaser_phone: phone,
-          amount_kes: amountKes,
-          status: 'pending',
-          payment_provider: 'manual',
-          mpesa_name: payerName,
-          mpesa_transaction_code: code,
-        })
-        .select('id')
-        .single();
-      if (orderError || !order) return mapDbError(res, orderError || {});
-
-      const { error: itemsError } = await supabase.from('order_items').insert({
-        order_id: order.id,
-        ticket_type_id: tier.id,
-        quantity,
-        unit_price_kes: tier.price_kes,
-        attendee_names: names,
+      const { data, error } = await supabase.rpc('create_tier_order', {
+        p_event: event.id,
+        p_ticket_type_id: ticketTypeId,
+        p_attendee_names: names,
+        p_purchaser_name: buyerName,
+        p_purchaser_email: email,
+        p_purchaser_phone: phone,
+        p_mpesa_name: payerName,
+        p_mpesa_code: code,
+        p_grace: GRACE,
+        p_idempotency_key: idemKey,
       });
-      if (itemsError) {
-        console.error('Order items error:', itemsError);
-        await supabase.from('orders').delete().eq('id', order.id); // never leave an order with no tickets in it
-        return fail(res, 500, 'ERROR', 'Failed to create order');
-      }
+      if (error) return mapDbError(res, error);
+
+      const result = data as {
+        order_number: string;
+        amount_kes: number;
+        tier_name: string | null;
+      };
+      orderNumber = result.order_number;
+      amountKes = result.amount_kes;
+      tierName = result.tier_name ?? null;
     }
 
     // ── Notify the ops team ────────────────────────────────────────────────
