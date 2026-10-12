@@ -16,6 +16,7 @@ export default function AttendeePage() {
   const [quantity, setQuantity] = useState(1);
   const [names, setNames] = useState([""]);
   const [email, setEmail] = useState("");
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
 
   useEffect(() => {
     if (!slug) return;
@@ -54,7 +55,10 @@ export default function AttendeePage() {
 
   const unitPrice = isCinema ? seatOrder?.unitPrice ?? 0 : ticket?.price ?? 0;
   const total = unitPrice * quantity;
-  const canContinue = useMemo(() => names.every((name) => name.trim()) && /^\S+@\S+\.\S+$/.test(email), [names, email]);
+  const canContinue = useMemo(
+    () => names.every((name) => name.trim()) && /^\S+@\S+\.\S+$/.test(email) && ageConfirmed,
+    [names, email, ageConfirmed]
+  );
 
   if (loading) {
     return (
@@ -121,6 +125,7 @@ export default function AttendeePage() {
       quantity: String(quantity),
       email,
       names: JSON.stringify(names),
+      ageConfirmed: ageConfirmed ? "1" : "0",
     });
     if (isCinema) params.set("mode", "seats");
     else params.set("ticket", ticket!.id);
@@ -192,6 +197,25 @@ export default function AttendeePage() {
           <Input className="mt-3" type="email" placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} required />
           <p className="mt-2 text-xs text-muted-foreground">Your tickets will be sent to this email address after payment.</p>
         </div>
+
+        <div className="mt-5 rounded-2xl border border-border bg-card p-5">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={ageConfirmed}
+              onChange={(e) => setAgeConfirmed(e.target.checked)}
+              className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[#c1ff1a]"
+              required
+            />
+            <span className="text-sm">
+              <span className="font-semibold">I confirm I am 18 years or older.</span>{" "}
+              <span className="text-muted-foreground">
+                You must be of legal age to attend this event and purchase tickets. By continuing, you confirm that you meet this requirement.
+              </span>
+            </span>
+          </label>
+        </div>
+
         <div className="mt-8 flex items-center justify-between rounded-2xl bg-muted p-5">
           <div>
             <p className="text-sm text-muted-foreground">

@@ -109,9 +109,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       mpesaTransactionCode,
       attendeeNames,
       idempotencyKey,
+      ageConfirmed,
     } = body;
 
     // ── Validate the basics ────────────────────────────────────────────────
+    if (!ageConfirmed) {
+      return fail(res, 400, 'AGE_REQUIRED', 'You must confirm you are 18 years or older to purchase tickets.');
+    }
     if (!eventSlug || typeof eventSlug !== 'string') {
       return fail(res, 400, 'BAD_REQUEST', 'Missing required fields');
     }

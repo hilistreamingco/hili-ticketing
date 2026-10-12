@@ -210,6 +210,7 @@ export default function CheckoutPage() {
   const seatOrder = slug && seatMode ? loadSeatOrder(slug) : null;
   const quantity = seatOrder ? seatOrder.seatIds.length : Number(params.get("quantity")) || 1;
   const email = params.get("email") || "";
+  const ageConfirmed = params.get("ageConfirmed") === "1";
   const names = (() => {
     try {
       const v = JSON.parse(params.get("names") || "[]");
@@ -335,6 +336,20 @@ export default function CheckoutPage() {
     );
   }
 
+  if (!ageConfirmed) {
+    return (
+      <PlaceholderPage
+        title="Age confirmation required"
+        description="You must confirm you are 18 years or older to purchase tickets. Please go back and confirm your age."
+        action={
+          <Link to={seatMode ? `/seats/${event?.slug}` : `/tickets/${event?.slug}`} className="inline-flex items-center gap-2 font-semibold underline">
+            <ArrowLeft className="h-4 w-4" /> Back to tickets
+          </Link>
+        }
+      />
+    );
+  }
+
   const unitPrice = seatMode ? (seatOrder?.unitPrice ?? ticket?.price ?? 0) : ticket!.price;
   const total = unitPrice * quantity;
   const sales = salesStatus(event);
@@ -364,6 +379,8 @@ export default function CheckoutPage() {
           mpesaName: mpesaName.trim(),
           mpesaTransactionCode: txCode.trim().toUpperCase() || undefined,
           attendeeNames: names,
+          ageConfirmed: true,
+          idempotencyKey: idempotencyKey.current,
         }),
       });
 

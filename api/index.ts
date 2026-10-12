@@ -20,6 +20,47 @@ import campaignHandler from '../backend/handlers/campaign.js';
 const app = express();
 app.use(express.json({ limit: '6mb' }));
 
+// ── Security headers ────────────────────────────────────────────────────────
+// Applied to every API response so the browser enforces them even on error
+// paths. CSP is deliberately permissive enough for Supabase + Google Fonts.
+app.use((_req, res, next) => {
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co https://*.supabase.in https://resend.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+  );
+  next();
+});
+
+// ── Simple in-memory rate limiter ───────────────────────────────────────────
+// Vercel functions are stateless, so this only protects against bursts within a
+// single warm instance. It still raises the cost of hammering the order endpoint
+// (the only unauthenticated write endpoint) from one browser/IP.
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 10;
+const rateHits = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimited(req: any, res: any, next: any) {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const entry = rateHits.get(ip);
+  if (!entry || entry.resetAt < now) {
+    rateHits.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return next();
+  }
+  entry.count += 1;
+  if (entry.count > RATE_MAX) {
+    res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+    return res.status(429).json({ error: 'Too many requests. Please slow down and try again.' });
+  }
+  next();
+}
+
 // The handlers in /backend were written as separate Vercel functions: they read req.query for both
 // ?name=value and the dynamic parts of the path (/events/:id). This gives them the same shape.
 function asHandler(handler: (req: any, res: any) => unknown) {
@@ -618,7 +659,7 @@ app.all('/api/admin/campaigns/:id/events/:eventId', asHandler(campaignHandler));
 app.all('/api/admin/campaigns/:id/events', asHandler(campaignHandler));
 app.all('/api/admin/campaigns/:id', asHandler(campaignHandler));
 app.all('/api/admin/campaigns', asHandler(campaignHandler));
-app.all('/api/orders/manual', asHandler(orderManualHandler));
+app.all('/api/orders/manual', rateLimited, asHandler(orderManualHandler));
 app.all('/api/payment-config/:eventSlug', asHandler(paymentConfigHandler));
 
 // Anything else under /api: a clear 404 instead of a hanging request
