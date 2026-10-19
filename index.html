@@ -6,10 +6,63 @@
     <title>Events by Hili</title>
     <meta name="description" content="Events by Hili — experiences worth showing up for." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Runs before the app bundle. On older iOS/WebKit the bundle can fail to
+      // load or parse, which normally leaves a blank white page. This turns that
+      // into a visible message with a reload button. The overlay is removed the
+      // moment React mounts (see clearBoot in App.tsx), so normal loads never see it.
+      window.__hiliMounted = false;
+      function hiliBootFail() {
+        if (window.__hiliMounted) return;
+        var boot = document.getElementById("boot");
+        if (!boot || !boot.isConnected || boot.getAttribute("data-failed") === "1") return;
+        boot.setAttribute("data-failed", "1");
+        var spinner = document.getElementById("boot-spinner");
+        if (spinner) spinner.style.display = "none";
+        var msg = document.getElementById("boot-msg");
+        if (msg) msg.textContent = "We couldn't load the page. Please check your connection and reload.";
+        var btn = document.getElementById("boot-reload");
+        if (btn) { btn.style.display = "inline-block"; btn.onclick = function () { window.location.reload(); }; }
+      }
+      window.addEventListener("error", function (e) {
+        // Ignore stray resource errors (e.g. a single image) so they don't trip
+        // the failure screen; only pre-mount JS/module failures matter.
+        if (window.__hiliMounted) return;
+        var el = e && (e.target || e.srcElement);
+        if (el && el !== window && el.tagName !== "SCRIPT") return;
+        hiliBootFail();
+      }, true);
+      window.addEventListener("unhandledrejection", function () { hiliBootFail(); });
+      // Last-resort net if the bundle silently never executes.
+      setTimeout(hiliBootFail, 10000);
+    </script>
   </head>
 
   <body>
     <div id="root"></div>
+
+    <!-- Branded boot overlay: visible until React mounts. If the bundle fails,
+         the script above swaps it for an error message + reload button. -->
+    <div
+      id="boot"
+      style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:#0b0b0b;color:#fff;text-align:center;padding:24px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif"
+    >
+      <div>
+        <div
+          id="boot-spinner"
+          style="width:40px;height:40px;margin:0 auto;border:3px solid rgba(193,255,26,.25);border-top-color:#c1ff1a;border-radius:9999px;animation:hili-boot-spin .8s linear infinite"
+        ></div>
+        <p id="boot-msg" style="margin:18px 0 0;font-size:14px;opacity:.7">Loading Events by Hili…</p>
+        <button
+          id="boot-reload"
+          type="button"
+          style="display:none;margin-top:18px;padding:10px 18px;border:0;border-radius:9999px;background:#c1ff1a;color:#0b0b0b;font-weight:700;cursor:pointer"
+        >
+          Reload
+        </button>
+      </div>
+      <style>@keyframes hili-boot-spin { to { transform: rotate(360deg); } }</style>
+    </div>
 
     <script type="module" src="/client/App.tsx"></script>
   </body>

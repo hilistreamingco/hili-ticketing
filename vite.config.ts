@@ -14,6 +14,11 @@ export default defineConfig({
   },
   build: {
     outDir: "dist/spa",
+    // Transpile down to an older Safari/WebKit baseline. Vite's modern default
+    // leaves syntax that older iPhones can't parse, which fails the whole bundle
+    // and shows as a blank white page on iOS only.
+    target: ["es2019", "safari13"],
+    cssTarget: "safari13",
   },
   envPrefix: ["VITE_", "NEXT_PUBLIC_"],
   plugins: [react()],

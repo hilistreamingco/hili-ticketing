@@ -6,7 +6,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { useEffect, useState, type ReactNode } from "react";
+import { Component, useEffect, useState, type ReactNode } from "react";
 import { CalendarDays, HardHat, LogIn, TicketCheck, Users } from "lucide-react";
 import { Analytics } from "@vercel/analytics/react";
 import Index from "./pages/Index";
@@ -28,6 +28,48 @@ import { getEvents, groupEventsByDate, formatEventDate, subscribeToEvents, type 
 import { getSiteSettings } from "./lib/supabase";
 
 const queryClient = new QueryClient();
+
+// Removes the boot overlay from index.html once the app is alive, so a failed
+// load can be shown as a message instead of a blank white page on iOS.
+function clearBoot() {
+  (window as { __hiliMounted?: boolean }).__hiliMounted = true;
+  document.getElementById("boot")?.remove();
+}
+
+// Catches render/lifecycle errors anywhere in the tree and shows a branded
+// fallback with a reload button instead of unmounting to a blank screen.
+class ErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+
+  static getDerivedStateFromError() {
+    return { crashed: true };
+  }
+
+  componentDidCatch(error: unknown, info: unknown) {
+    console.error("Hili app crashed:", error, info);
+    clearBoot();
+  }
+
+  render() {
+    if (this.state.crashed) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b0b0b] px-6 text-center text-white">
+          <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#c1ff1a]">Hili Events</p>
+          <h1 className="mt-4 font-display text-3xl font-bold tracking-tight">Something went wrong.</h1>
+          <p className="mt-3 max-w-sm text-sm text-white/60">Please reload the page to try again.</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-6 rounded-full bg-[#c1ff1a] px-6 py-3 font-bold text-black"
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return <>{this.props.children}</>;
+  }
+}
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -78,6 +120,7 @@ function EventsPage() {
 }
 
 function App() {
+  useEffect(() => { clearBoot(); }, []);
   return <><QueryClientProvider client={queryClient}><TooltipProvider><Toaster /><Sonner /><BrowserRouter><ScrollToTop /><MaintenanceGate><Routes>
     <Route path="/" element={<Index />} />
     <Route path="/events" element={<EventsPage />} />
@@ -155,4 +198,8 @@ function MaintenancePage() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);
