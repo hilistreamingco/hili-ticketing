@@ -20,7 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.json({ role: 'hili_admin', email: user.email });
   }
   if (prestige) {
-    return res.json({ role: 'prestige_user', email: user.email });
+    return res.json({ role: 'prestige_admin', email: user.email });
   }
 
   return res.json({ role: 'user', email: user.email });
