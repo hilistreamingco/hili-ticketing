@@ -165,31 +165,7 @@ export default function EventPage() {
                 ))}
               </div>
             </section>
-
-            {/* Getting there / map */}
-            {event.venue && event.address && (
-              <section className="w-full max-w-full">
-                <h2 className="w-full max-w-full font-display text-2xl font-bold break-words md:text-3xl">Getting there</h2>
-                <p className="mt-3 w-full max-w-full text-sm break-words opacity-65">
-                  {event.venue} · {event.address}
-                </p>
-                <div className="mt-6 w-full max-w-full overflow-hidden rounded-2xl border border-current/10">
-                  <iframe
-                    title={`${event.venue} map`}
-                    src={`https://www.google.com/maps?q=${encodeURIComponent(`${event.venue}, ${event.address}`)}&output=embed`}
-                    className="h-72 w-full max-w-full border-0 md:h-80"
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
-                </div>
-                {event.mapUrl && (
-                  <a href={event.mapUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex max-w-full items-center gap-2 text-sm font-semibold break-words hover:underline">
-                    Open in Google Maps <ExternalLink className="h-4 w-4 shrink-0" />
-                  </a>
-                )}
-              </section>
-            )}
-
+            
             {/* Organizer */}
             <section className="flex w-full max-w-full items-center gap-3">
               <img src={event.organizer.avatar} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />

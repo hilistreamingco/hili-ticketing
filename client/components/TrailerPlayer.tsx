@@ -35,10 +35,21 @@ export default function TrailerButton({ url, title }: { url: string | null | und
               title={`${title} trailer`}
               className="h-full w-full border-0"
               allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              referrerPolicy="strict-origin-when-cross-origin"
               allowFullScreen
             />
           )}
         </div>
+        {src.kind !== "file" && (
+          <a
+            href={src.watchUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block px-4 pb-3 text-center text-xs text-white/60 hover:text-white"
+          >
+            Video not playing? Open it in a new tab
+          </a>
+        )}
       </DialogContent>
     </Dialog>
   );

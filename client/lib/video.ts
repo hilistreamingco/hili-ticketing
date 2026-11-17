@@ -2,13 +2,15 @@
 // Supports YouTube, Vimeo and direct video files (.mp4 / .webm / .mov).
 
 export type VideoSource =
-  | { kind: "youtube"; id: string; embedUrl: string; thumb: string }
-  | { kind: "vimeo"; id: string; embedUrl: string; thumb: null }
+  | { kind: "youtube"; id: string; embedUrl: string; watchUrl: string; thumb: string }
+  | { kind: "vimeo"; id: string; embedUrl: string; watchUrl: string; thumb: null }
   | { kind: "file"; url: string };
 
 export function parseVideoUrl(raw: string | null | undefined): VideoSource | null {
-  const value = (raw ?? "").trim();
+  let value = (raw ?? "").trim();
   if (!value) return null;
+  // Forgive links pasted without "https://" (e.g. "youtu.be/abc" or "www.youtube.com/...").
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) value = `https://${value}`;
   let url: URL;
   try {
     url = new URL(value);
@@ -32,15 +34,16 @@ export function parseVideoUrl(raw: string | null | undefined): VideoSource | nul
       kind: "youtube",
       id: ytId,
       embedUrl: `https://www.youtube-nocookie.com/embed/${ytId}?rel=0&modestbranding=1&playsinline=1&autoplay=1`,
+      watchUrl: `https://www.youtube.com/watch?v=${ytId}`,
       thumb: `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
     };
   }
 
-  if (host === "vimeo.com" || host === "player.vimeo.com") {
+    if (host === "vimeo.com" || host === "player.vimeo.com") {
     const m = url.pathname.match(/(\d{5,})/);
-    if (m) return { kind: "vimeo", id: m[1], embedUrl: `https://player.vimeo.com/video/${m[1]}?autoplay=1&title=0&byline=0`, thumb: null };
+    if (m) return { kind: "vimeo", id: m[1], embedUrl: `https://player.vimeo.com/video/${m[1]}?autoplay=1&title=0&byline=0`, watchUrl: `https://vimeo.com/${m[1]}`, thumb: null };
   }
-
+  
   if (/\.(mp4|webm|mov|m4v)$/i.test(url.pathname)) return { kind: "file", url: url.toString() };
   return null;
 }
