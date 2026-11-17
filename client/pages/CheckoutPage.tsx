@@ -230,6 +230,10 @@ export default function CheckoutPage() {
   const [errorCode, setErrorCode] = useState("");
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [codeInput, setCodeInput] = useState("");
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeError, setCodeError] = useState("");
+  const [applied, setApplied] = useState<{ code: string; amountKes: number } | null>(null);
   // One idempotency key per checkout mount. Reused on every retry so the
   // database never creates two orders for one payment, even if the user
   // double-clicks or the network drops and they hit Try again.
@@ -351,7 +355,30 @@ export default function CheckoutPage() {
   }
 
   const unitPrice = seatMode ? (seatOrder?.unitPrice ?? ticket?.price ?? 0) : ticket!.price;
-  const total = unitPrice * quantity;
+  const subtotal = unitPrice * quantity;
+  const discount = applied ? Math.min(applied.amountKes, subtotal) : 0;
+  const total = subtotal - discount;
+
+  const applyCode = async () => {
+    const c = codeInput.trim();
+    if (!c || !event) return;
+    setCodeBusy(true);
+    setCodeError("");
+    try {
+      const r = await fetch("/api/discount-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventSlug: event.slug, code: c }),
+      });
+      const d = (await r.json()) as { valid?: boolean; code?: string; amountKes?: number; error?: string };
+      if (d.valid && d.code && d.amountKes) setApplied({ code: d.code, amountKes: d.amountKes });
+      else { setApplied(null); setCodeError(d.error || "That code is not valid."); }
+    } catch {
+      setCodeError("Could not check the code. Please try again.");
+    } finally {
+      setCodeBusy(false);
+    }
+  };
   const sales = salesStatus(event);
   const itemName = seatMode ? (ticket ? `${ticket.name} · seats` : "Cinema seats") : ticket!.name;
   const minutes = remainingMs === null ? null : Math.floor(remainingMs / 60000);
@@ -381,11 +408,16 @@ export default function CheckoutPage() {
           attendeeNames: names,
           ageConfirmed: true,
           idempotencyKey: idempotencyKey.current,
+          discountCode: applied?.code,
         }),
       });
 
       const data = (await res.json()) as { orderNumber?: string; seatLabels?: string[]; error?: string; code?: string };
 
+      if (!res.ok && data.code === "DISCOUNT_INVALID") {
+        setApplied(null);
+        setCodeError(data.error || "That code is not valid.");
+      }
       if (!res.ok) {
         setErrorMsg(data.error || "Could not submit your order. Please try again.");
         setErrorCode(data.code || "");
@@ -462,6 +494,32 @@ export default function CheckoutPage() {
             </p>
           </div>
           <p className="font-display text-xl font-bold">{formatPrice(total)}</p>
+        </div>
+
+        {/* Creator code */}
+        <div className="mt-4 rounded-2xl border border-border bg-card px-6 py-4">
+          <p className="text-sm font-semibold">Have a creator code?</p>
+          {applied ? (
+            <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+              <p className="text-green-700">
+                Code {applied.code} applied. You save {formatPrice(discount)}.
+                {discount > 0 && <span className="text-muted-foreground"> Was {formatPrice(subtotal)}, now {formatPrice(total)}.</span>}
+              </p>
+              <button type="button" className="shrink-0 text-xs font-semibold underline" onClick={() => { setApplied(null); setCodeInput(""); }}>
+                Remove
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="mt-2 flex gap-2">
+                <Input value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} placeholder="Enter code" className="max-w-[220px]" />
+                <Button type="button" variant="outline" disabled={codeBusy || !codeInput.trim()} onClick={applyCode}>
+                  {codeBusy ? "Checking…" : "Apply"}
+                </Button>
+              </div>
+              {codeError && <p className="mt-2 text-sm text-red-600">{codeError}</p>}
+            </>
+          )}
         </div>
 
         {/* Payment instructions */}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, CalendarDays, Clock3, Loader2, MapPin, Sparkles, Ticket } from "lucide-react";
+import { ArrowRight, CalendarDays, Clock3, Loader2, MapPin, Sparkles, Ticket, Users } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import EventCard from "@/components/EventCard";
 import { Button } from "@/components/ui/button";
@@ -87,45 +87,88 @@ export default function Index() {
         </div>
         <div className="container flex min-h-[calc(100vh-4rem)] items-center py-16 lg:py-20">
           <div className="max-w-2xl">
-            <h1 className="font-display text-5xl font-bold leading-[.95] tracking-tight break-words [word-break:normal] sm:text-7xl lg:text-8xl">
-              Events by <span className="text-[#c1ff1a]">Hili</span>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-[#c1ff1a]">Hili · Creative collective</p>
+            <h1 className="mt-5 font-display text-5xl font-bold leading-[.95] tracking-tight break-words [word-break:normal] sm:text-7xl lg:text-8xl">
+              Made by creatives. <span className="text-[#c1ff1a]">Made for the culture.</span>
             </h1>
             <p className="mt-6 max-w-lg text-lg text-white/75">
-              Cinema nights, afterparties and live experiences. Find what is on, pick your seat or ticket, and show up ready to make memories.
+              Hili is where young creatives get seen. We curate the talent, connect the people shaping what is next, and throw the nights that bring everyone together.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="bg-[#c1ff1a] text-black hover:bg-[#a8e616]">
-                <Link to="/events">
-                  Browse events <ArrowRight className="h-4 w-4" />
-                </Link>
+                <a href={creatives.length > 0 ? "#creatives" : "#what-we-do"}>
+                  Meet the creatives <ArrowRight className="ml-2 h-4 w-4" />
+                </a>
               </Button>
-              {campaigns.length > 0 && (
-                <Button asChild size="lg" variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10">
-                  <a href="#campaigns">
-                    <Ticket className="mr-2 h-4 w-4" /> View campaigns
-                  </a>
-                </Button>
-              )}
+              <Button asChild size="lg" variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10">
+                <a href="#events">
+                  <Ticket className="mr-2 h-4 w-4" /> What is on
+                </a>
+              </Button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Upcoming: at most two events, separated by a ticket-style line */}
-      <section className="bg-[#f4f1ea]">
+      {/* Creatives: the heart of the page. Hidden until at least one is added in the admin. */}
+      {creatives.length > 0 && (
+        <section id="creatives" className="overflow-hidden bg-[#0b0b0b] text-white">
+          <div className="container py-16 md:py-24">
+            <p className="text-center text-[10px] font-semibold uppercase tracking-[.3em] text-white/50">The creatives</p>
+            <h2 className="mx-auto mt-4 max-w-2xl text-center font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+              The people and the work we back.
+            </h2>
+            <p className="mx-auto mt-4 max-w-md text-center text-white/60">
+              Artists, makers and collectives from our community, spotlighted.
+            </p>
+            <div className="mt-10 md:mt-14">
+              <CreativesCarousel items={creatives} />
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* What Hili does */}
+      <section id="what-we-do" className="bg-[#f4f1ea]">
         <div className="container py-16 md:py-24">
-          <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-black/45">Coming up</p>
-          <h2 className="mt-4 font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">Upcoming events</h2>
+          <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-black/45">What we do</p>
+          <h2 className="mt-4 max-w-xl font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+            We put creatives in front of the people who care.
+          </h2>
+          <div className="mt-10 grid gap-5 md:grid-cols-3">
+            {[
+              { icon: Sparkles, title: "Curate", text: "We find fresh voices across film, music, art and design, and give their work a proper stage." },
+              { icon: Users, title: "Connect", text: "We link creatives with each other, with brands and with an audience that shows up." },
+              { icon: Ticket, title: "Celebrate", text: "Screenings, afterparties and live nights, built around the work and the community behind it." },
+            ].map(({ icon: Icon, title, text }) => (
+              <div key={title} className="rounded-2xl border border-black/10 bg-white p-6">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#c1ff1a]">
+                  <Icon className="h-5 w-5 text-black" />
+                </span>
+                <h3 className="mt-5 font-display text-2xl font-bold">{title}</h3>
+                <p className="mt-2 text-sm leading-6 text-black/60">{text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Events by Hili: at most two upcoming events, separated by a ticket-style line */}
+      <section id="events" className="bg-white">
+        <div className="container py-16 md:py-24">
+          <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-black/45">Events by Hili</p>
+          <h2 className="mt-4 font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">When the community gathers.</h2>
+          <p className="mt-3 max-w-lg text-muted-foreground">Screenings, afterparties and live nights, curated by Hili. Grab your spot.</p>
 
           {upcoming.length === 0 ? (
-            <p className="mt-8 max-w-md text-muted-foreground">New events are being lined up. Check back soon.</p>
+            <p className="mt-8 max-w-md text-muted-foreground">The next gathering is being lined up. Check back soon.</p>
           ) : (
             <div className="mt-10">
               {upcoming.map((event, i) => (
                 <div key={event.id}>
                   {i > 0 && (
                     <div className="relative my-10 border-t-2 border-dashed border-black/20 md:my-14" aria-hidden="true">
-                      <span className="absolute left-1/2 top-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-[#c1ff1a] ring-[6px] ring-[#f4f1ea]" />
+                      <span className="absolute left-1/2 top-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-[#c1ff1a] ring-[6px] ring-white" />
                     </div>
                   )}
                   <UpcomingEvent event={event} flip={i % 2 === 1} />
@@ -143,19 +186,6 @@ export default function Index() {
           </div>
         </div>
       </section>
-
-      {/* Creatives: pictures from past events. Hidden until at least one is added in the admin. */}
-      {creatives.length > 0 && (
-        <section className="overflow-hidden bg-[#0b0b0b] text-white">
-          <div className="container py-16 md:py-24">
-            <p className="text-center text-[10px] font-semibold uppercase tracking-[.3em] text-white/45">The vibe</p>
-            <h2 className="mt-4 text-center font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">Moments from our events</h2>
-            <div className="mt-10 md:mt-14">
-              <CreativesCarousel items={creatives} />
-            </div>
-          </div>
-        </section>
-      )}
 
       {campaigns.length > 0 && (
         <section id="campaigns" className="bg-[#f4f1ea]">
@@ -196,6 +226,19 @@ export default function Index() {
           </div>
         </section>
       )}
+
+      {/* Closing call: for creatives */}
+      <section className="bg-[#0b0b0b] text-white">
+        <div className="container py-16 text-center md:py-24">
+          <h2 className="mx-auto max-w-2xl font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+            Got something to show the world? <span className="text-[#c1ff1a]">Let us hear it.</span>
+          </h2>
+          <p className="mx-auto mt-4 max-w-md text-white/60">Creatives, collectives and brands: come build with Hili.</p>
+          <Button asChild size="lg" className="mt-8 bg-[#c1ff1a] text-black hover:bg-[#a8e616]">
+            <Link to="/contact">Get in touch <ArrowRight className="ml-2 h-4 w-4" /></Link>
+          </Button>
+        </div>
+      </section>
     </Layout>
   );
 }

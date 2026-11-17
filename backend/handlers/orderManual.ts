@@ -38,6 +38,18 @@ function generateOrderNumber(): string {
   return `ORD-${stamp}-${random}`;
 }
 
+// Plain-English reason a discount code was refused.
+function discountMessage(reason: string): string {
+  switch (reason) {
+    case 'NOT_STARTED': return 'This code is not active yet.';
+    case 'EXPIRED': return 'This code has expired.';
+    case 'USED_UP': return 'This code has been fully used.';
+    case 'WRONG_EVENT': return 'This code does not work for this event.';
+    case 'INACTIVE': return 'This code is no longer active.';
+    default: return 'That code is not valid.';
+  }
+}
+
 // Maps the errors raised by the database functions to something a buyer can read.
 function mapDbError(res: VercelResponse, error: { message?: string; code?: string }) {
   const message = error.message || '';
@@ -69,6 +81,10 @@ function mapDbError(res: VercelResponse, error: { message?: string; code?: strin
   if (message.includes('BAD_QUANTITY')) {
     return fail(res, 400, 'BAD_QUANTITY', 'Please choose the right number of tickets for that type.');
   }
+  const discount = /DISCOUNT_INVALID:([A-Z_]+)/.exec(message);
+  if (discount) {
+    return fail(res, 409, 'DISCOUNT_INVALID', discountMessage(discount[1]), { reason: discount[1] });
+  }
   if (message.includes('BAD_EMAIL')) {
     return fail(res, 400, 'BAD_REQUEST', 'Please enter a valid email address.');
   }
@@ -86,6 +102,18 @@ function mapDbError(res: VercelResponse, error: { message?: string; code?: strin
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // A discount use taken before the order is created must be given back if the
+  // order then fails, so these live outside the try block.
+  let reservedCodeId: string | null = null;
+  let svc: any = null;
+  const giveBackDiscount = async () => {
+    if (reservedCodeId && svc) {
+      const id = reservedCodeId;
+      reservedCodeId = null;
+      try { await svc.rpc('release_discount', { p_code_id: id }); } catch { /* best effort */ }
+    }
+  };
+
   // Same-origin only: no CORS headers, so other sites cannot post orders from a browser.
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -110,6 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       attendeeNames,
       idempotencyKey,
       ageConfirmed,
+      discountCode,
     } = body;
 
     // ── Validate the basics ────────────────────────────────────────────────
@@ -149,6 +178,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!supabase) {
       return res.status(500).json({ error: 'Missing Supabase config' });
     }
+    svc = supabase;
 
     // ── Event ──────────────────────────────────────────────────────────────
     const { data: event, error: eventError } = await supabase
@@ -160,6 +190,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (eventError || !event) {
       return fail(res, 404, 'NOT_FOUND', 'Event not found');
+    }
+
+    // ── Discount code: take one use now (row-locked, so the limit is exact) ──
+    const cleanCode = typeof discountCode === 'string' ? discountCode.trim().toUpperCase().slice(0, 40) : '';
+    let discountKes = 0;
+    if (cleanCode) {
+      const { data: reserved, error: reserveError } = await supabase.rpc('reserve_discount', {
+        p_code: cleanCode,
+        p_event: event.id,
+      });
+      if (reserveError) return mapDbError(res, reserveError);
+      reservedCodeId = (reserved as { code_id: string }).code_id;
     }
 
     let orderNumber = '';
@@ -186,7 +228,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         p_ticket_type_id: typeof ticketTypeId === 'string' ? ticketTypeId : null,
         p_idempotency_key: idemKey,
       });
-      if (error) return mapDbError(res, error);
+      if (error) { await giveBackDiscount(); return mapDbError(res, error); }
 
       const result = data as { order_number: string; amount_kes: number; seat_labels: string[] };
       orderNumber = result.order_number;
@@ -219,7 +261,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         p_grace: GRACE,
         p_idempotency_key: idemKey,
       });
-      if (error) return mapDbError(res, error);
+      if (error) { await giveBackDiscount(); return mapDbError(res, error); }
 
       const result = data as {
         order_number: string;
@@ -229,6 +271,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       orderNumber = result.order_number;
       amountKes = result.amount_kes;
       tierName = result.tier_name ?? null;
+    }
+
+    // ── Apply the discount to the order (safe to repeat for the same order) ──
+    if (reservedCodeId) {
+      const { data: applied, error: applyError } = await supabase.rpc('attach_discount', {
+        p_order_number: orderNumber,
+        p_code_id: reservedCodeId,
+      });
+      if (applyError) {
+        // The order exists at full price. Give the use back and ask the buyer to
+        // submit again: the same idempotency key finds this order and re-applies.
+        await giveBackDiscount();
+        console.error('Discount attach error:', applyError);
+        return fail(res, 503, 'BUSY', 'We could not apply your code just now. Please try again in a moment.');
+      }
+      const result = applied as { already: boolean; amount_kes: number; discount_kes: number };
+      // A repeat submit of the same order already holds its use: give back the extra one.
+      if (result.already) await giveBackDiscount();
+      else reservedCodeId = null;
+      amountKes = result.amount_kes;
+      discountKes = result.discount_kes;
     }
 
     // ── Notify the ops team ────────────────────────────────────────────────
@@ -262,7 +325,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   ${tierName ? row('Tier', esc(tierName)) : ''}
                   ${seatLabels.length ? row('Seats', esc(seatLabels.join(', ')), 'font-weight: bold;') : ''}
                   ${row('Tickets', String(names.length))}
-                  ${row('Amount', `KES ${amountKes.toLocaleString()}`, 'font-weight: bold; color: #2a7a00;')}
+                  ${discountKes > 0 ? row('Discount', `${esc(cleanCode)} (− KES ${discountKes.toLocaleString()})`) : ''}
+                  ${row('Amount to pay', `KES ${amountKes.toLocaleString()}`, 'font-weight: bold; color: #2a7a00;')}
                   ${row('M-Pesa Name', esc(payerName))}
                   ${code ? row('Transaction Code', esc(code), 'font-family: monospace; font-weight: bold;') : ''}
                 </table>
@@ -284,10 +348,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       success: true,
       orderNumber,
       amountKes,
+      discountKes,
       seatLabels,
       message: 'Order created. Our team will verify your payment and send tickets to your email.',
     });
   } catch (error: any) {
+    await giveBackDiscount();
     console.error('Manual order API error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }

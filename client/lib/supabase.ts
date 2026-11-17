@@ -633,3 +633,66 @@ export async function uploadCreativeImage(file: File): Promise<string> {
   if (error) throw new Error(error.message);
   return slot.publicUrl;
 }
+
+// ── Creator / discount codes (server side, see api/index.ts) ───────────────
+
+export type DiscountRow = {
+  id: string;
+  code: string;
+  creator_name: string;
+  event_id: string | null;
+  event_name: string | null;
+  amount_kes: number;
+  usage_limit: number | null;
+  uses_count: number;
+  is_active: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  created_at: string;
+  orders_count: number;
+  tickets: number;
+  discount_total: number;
+  net_total: number;
+  gate_uses: number;
+};
+
+export type DiscountInput = {
+  code?: string;
+  creator_name?: string;
+  amount_kes?: number;
+  usage_limit?: number | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  event_id?: string | null;
+  is_active?: boolean;
+};
+
+export type DiscountCheck =
+  | { valid: true; creator: string; amountKes: number; code: string; usesLeft: number | null }
+  | { valid: false; message: string };
+
+export async function getDiscountReport(eventId?: string | null): Promise<DiscountRow[]> {
+  const q = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
+  const data = await adminGet<{ codes: DiscountRow[] }>(`/api/x/admin/discount-report${q}`);
+  return data.codes;
+}
+
+export async function createDiscountCode(input: DiscountInput): Promise<void> {
+  await adminPost("/api/x/admin/discount-codes", input);
+}
+
+export async function updateDiscountCode(id: string, input: DiscountInput): Promise<void> {
+  await adminPut(`/api/x/admin/discount-codes/${id}`, input);
+}
+
+export async function deleteDiscountCode(id: string): Promise<void> {
+  await adminDelete(`/api/x/admin/discount-codes/${id}`);
+}
+
+export async function checkDiscountCode(code: string, eventId: string): Promise<DiscountCheck> {
+  return adminPost<DiscountCheck>("/api/x/admin/discount-check", { code, eventId });
+}
+
+export async function redeemDiscountAtGate(code: string, eventId: string): Promise<DiscountCheck> {
+  return adminPost<DiscountCheck>("/api/x/admin/discount-redeem", { code, eventId });
+}

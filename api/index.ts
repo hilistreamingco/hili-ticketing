@@ -548,6 +548,177 @@ app.post('/api/x/admin/video-upload-url', async (req, res) => {
   }
 });
 
+// ── Discount / creator codes ────────────────────────────────────────────────
+// Public check (used by the checkout page for the "code applied" message).
+// Returns only valid + amount, never who the creator is.
+const DISCOUNT_REASONS: Record<string, string> = {
+  NOT_FOUND: 'That code is not valid.',
+  INACTIVE: 'This code is no longer active.',
+  WRONG_EVENT: 'This code does not work for this event.',
+  NOT_STARTED: 'This code is not active yet.',
+  EXPIRED: 'This code has expired.',
+  USED_UP: 'This code has been fully used.',
+};
+
+app.post('/api/discount-check', rateLimited, async (req, res) => {
+  try {
+    const slug = String(req.body?.eventSlug ?? '');
+    const code = String(req.body?.code ?? '').trim().slice(0, 40);
+    if (!slug || !code) return res.status(400).json({ valid: false, error: 'Enter a code.' });
+    const supabase = getSupabase();
+    const { data: event } = await supabase.from('events').select('id').eq('slug', slug).eq('status', 'published').maybeSingle();
+    if (!event) return res.status(404).json({ valid: false, error: 'Event not found.' });
+    const { data, error } = await supabase.rpc('check_discount', { p_code: code, p_event: event.id });
+    if (error) throw error;
+    if (!data?.valid) return res.json({ valid: false, error: DISCOUNT_REASONS[data?.reason] || DISCOUNT_REASONS.NOT_FOUND });
+    res.json({ valid: true, code: data.code, amountKes: data.amount_kes });
+  } catch (error: any) {
+    res.status(500).json({ valid: false, error: 'Could not check the code. Please try again.' });
+  }
+});
+
+// Admin: report (every code with orders, tickets and money), optionally for one event.
+app.get('/api/x/admin/discount-report', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const eventId = typeof req.query.eventId === 'string' && req.query.eventId ? req.query.eventId : null;
+    const { data, error } = await getSupabase().rpc('discount_report', { p_event: eventId });
+    if (error) throw error;
+    res.json({ codes: data || [] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not load codes' });
+  }
+});
+
+function cleanDiscountFields(body: any, creating: boolean): { fields?: Record<string, unknown>; error?: string } {
+  const f: Record<string, unknown> = {};
+  if (creating || body.code !== undefined) {
+    const code = String(body.code ?? '').trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{3,30}$/.test(code)) return { error: 'Code must be 3 to 30 letters, digits, - or _' };
+    f.code = code;
+  }
+  if (creating || body.creator_name !== undefined) {
+    const name = String(body.creator_name ?? '').trim().slice(0, 80);
+    if (!name) return { error: 'Creator name is required' };
+    f.creator_name = name;
+  }
+  if (creating || body.amount_kes !== undefined) {
+    const n = Math.floor(Number(body.amount_kes));
+    if (!(n >= 1 && n <= 1000000)) return { error: 'Discount amount must be between 1 and 1,000,000' };
+    f.amount_kes = n;
+  }
+  if (body.usage_limit !== undefined) {
+    if (body.usage_limit === null || body.usage_limit === '') f.usage_limit = null;
+    else {
+      const n = Math.floor(Number(body.usage_limit));
+      if (!(n >= 1 && n <= 1000000)) return { error: 'Usage limit must be 1 or more, or empty for unlimited' };
+      f.usage_limit = n;
+    }
+  }
+  for (const k of ['starts_at', 'ends_at'] as const) {
+    if (body[k] === undefined) continue;
+    if (body[k] === null || body[k] === '') f[k] = null;
+    else {
+      const d = new Date(body[k]);
+      if (Number.isNaN(d.getTime())) return { error: 'A date is not valid' };
+      f[k] = d.toISOString();
+    }
+  }
+  if (f.starts_at && f.ends_at && new Date(f.ends_at as string) <= new Date(f.starts_at as string)) {
+    return { error: 'The end date must be after the start date' };
+  }
+  if (creating && body.event_id !== undefined) {
+    f.event_id = body.event_id === null || body.event_id === '' ? null : String(body.event_id);
+  }
+  if (body.is_active !== undefined) f.is_active = Boolean(body.is_active);
+  return { fields: f };
+}
+
+app.post('/api/x/admin/discount-codes', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { fields, error: invalid } = cleanDiscountFields(req.body || {}, true);
+    if (invalid || !fields) return res.status(400).json({ error: invalid });
+    const { data, error } = await getSupabase().from('discount_codes').insert(fields).select().single();
+    if (error) {
+      if (error.code === '23505') return res.status(409).json({ error: 'That code already exists. Pick another.' });
+      throw error;
+    }
+    res.status(201).json({ code: data });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not create the code' });
+  }
+});
+
+app.put('/api/x/admin/discount-codes/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const body = { ...(req.body || {}) };
+    delete body.code; // a code's text never changes once created
+    const { fields, error: invalid } = cleanDiscountFields(body, false);
+    if (invalid || !fields) return res.status(400).json({ error: invalid });
+    if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'Nothing to change' });
+    const { data, error } = await getSupabase().from('discount_codes').update(fields).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ code: data });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not update the code' });
+  }
+});
+
+app.delete('/api/x/admin/discount-codes/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const supabase = getSupabase();
+    const { data: row } = await supabase.from('discount_codes').select('uses_count').eq('id', req.params.id).maybeSingle();
+    if (!row) return res.status(404).json({ error: 'Code not found' });
+    if (row.uses_count > 0) return res.status(409).json({ error: 'This code has been used. Switch it off instead of deleting it, so the report stays correct.' });
+    const { error } = await supabase.from('discount_codes').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not delete the code' });
+  }
+});
+
+// Admin: check a code against an event. For gate events, also redeem it at the door.
+app.post('/api/x/admin/discount-check', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { code, eventId } = req.body || {};
+    if (!code || !eventId) return res.status(400).json({ error: 'Enter a code and choose an event' });
+    const { data, error } = await getSupabase().rpc('check_discount', { p_code: String(code), p_event: String(eventId) });
+    if (error) throw error;
+    if (!data?.valid) return res.json({ valid: false, message: DISCOUNT_REASONS[data?.reason] || DISCOUNT_REASONS.NOT_FOUND });
+    res.json({ valid: true, creator: data.creator, amountKes: data.amount_kes, code: data.code, usesLeft: data.uses_left });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not check the code' });
+  }
+});
+
+app.post('/api/x/admin/discount-redeem', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { code, eventId } = req.body || {};
+    if (!code || !eventId) return res.status(400).json({ error: 'Enter a code and choose an event' });
+    const { data, error } = await getSupabase().rpc('redeem_discount_gate', { p_code: String(code), p_event: String(eventId) });
+    if (error) {
+      const m = /DISCOUNT_INVALID:([A-Z_]+)/.exec(error.message || '');
+      if (m) return res.json({ valid: false, message: DISCOUNT_REASONS[m[1]] || DISCOUNT_REASONS.NOT_FOUND });
+      throw error;
+    }
+    res.json({ valid: true, creator: data.creator, amountKes: data.amount_kes, code: data.code });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not redeem the code' });
+  }
+});
+
 // Cinema price brackets (pricing_mode = 'seats_taken')
 app.get('/api/x/admin/brackets', async (req, res) => {
   try {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  BadgePercent,
   BarChart3,
   CalendarDays,
   CheckCircle2,
@@ -26,6 +27,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import DiscountCodesPanel from "@/components/DiscountCodesPanel";
 import {
   getAdminEvents,
   getAdminEvent,
@@ -67,7 +69,7 @@ import {
 } from "@/lib/supabase";
 import { formatNairobi, isoToNairobiInput, nairobiInputToIso } from "@/lib/time";
 
-type Tab = "Overview" | "Events" | "Attendees" | "Payment config";
+type Tab = "Overview" | "Events" | "Attendees" | "Creator codes" | "Payment config";
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 export default function AdminPage() {
@@ -142,6 +144,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     { label: "Overview", icon: LayoutDashboard },
     { label: "Events", icon: CalendarDays },
     { label: "Attendees", icon: Users },
+    { label: "Creator codes", icon: BadgePercent },
     { label: "Payment config", icon: Settings2 },
   ];
 
@@ -212,6 +215,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           {tab === "Overview"       && <Overview />}
           {tab === "Events"         && <EventsTab selectedId={selectedEvent} onSelect={selectEvent} />}
           {tab === "Attendees"      && <Attendees />}
+          {tab === "Creator codes"  && <CreatorCodesTab />}
           {tab === "Payment config" && <PaymentConfigEditor preselectId={selectedEvent && selectedEvent !== "new" ? selectedEvent : null} />}
         </div>
       </main>
@@ -1326,11 +1330,26 @@ function EventEditor({
         </div>
       </div>
 
+      {/* Creator codes: every event type, including gate */}
+      {row?.id ? <DiscountCodesPanel eventId={row.id} eventType={draft.event_type} /> : null}
+
       {/* Tiers or brackets (gate events don't have either) */}
       {draft.event_type === "gate" ? null :
         draft.event_type === "cinema" && draft.pricing_mode === "seats_taken"
           ? <BracketEditor eventId={row?.id ?? null} />
           : <TierEditor eventId={row?.id ?? null} tiers={tiers} setTiers={setTiers} />}
+    </div>
+  );
+}
+
+// ── Creator codes tab: every code, with the per-creator report ───────────────
+function CreatorCodesTab() {
+  const [events, setEvents] = useState<AdminEvent[]>([]);
+  useEffect(() => { getAdminEvents().then(setEvents).catch(() => undefined); }, []);
+  return (
+    <div>
+      <h2 className="font-display text-2xl font-bold">Creator codes</h2>
+      <DiscountCodesPanel events={events.map((e) => ({ id: e.id, title: e.name }))} />
     </div>
   );
 }
