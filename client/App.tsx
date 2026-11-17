@@ -182,7 +182,7 @@ function MaintenancePage() {
         <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-full bg-[#c1ff1a]/10 border border-[#c1ff1a]/30">
           <HardHat className="h-10 w-10 text-[#c1ff1a]" />
         </div>
-        <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#c1ff1a]">Hili Ticketing</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#c1ff1a]">Events by Hili</p>
         <h1 className="mt-6 font-display text-4xl font-bold tracking-tight sm:text-6xl">
           We're making something great.
         </h1>

@@ -532,11 +532,13 @@ app.post('/api/x/admin/video-upload-url', async (req, res) => {
     if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
 
     const ext = String(req.body?.ext ?? 'mp4').toLowerCase();
-    if (!['mp4', 'webm', 'mov'].includes(ext)) {
-      return res.status(400).json({ error: 'Video must be .mp4, .webm or .mov' });
+    const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
+    const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(ext);
+    if (!isVideo && !isImage) {
+      return res.status(400).json({ error: 'File must be .mp4, .webm, .mov, .jpg, .png or .webp' });
     }
     const supabase = getSupabase();
-    const path = `videos/${randomUUID()}.${ext}`;
+    const path = `${isVideo ? 'videos' : 'creatives'}/${randomUUID()}.${ext}`;
     const { data, error } = await supabase.storage.from('event-posters').createSignedUploadUrl(path);
     if (error) throw error;
     const { data: pub } = supabase.storage.from('event-posters').getPublicUrl(path);

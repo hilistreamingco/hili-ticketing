@@ -613,3 +613,23 @@ export async function uploadBackgroundVideo(file: File): Promise<string> {
   if (error) throw new Error(error.message);
   return slot.publicUrl;
 }
+
+export const MAX_CREATIVE_MB = 5;
+
+/** Uploads a creative (picture from a past event) and returns its public link. */
+export async function uploadCreativeImage(file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (!["jpg", "jpeg", "png", "webp"].includes(ext)) throw new Error("Choose a .jpg, .png or .webp picture");
+  if (file.size > MAX_CREATIVE_MB * 1024 * 1024) {
+    throw new Error(`That picture is ${(file.size / 1048576).toFixed(1)} MB. Keep it under ${MAX_CREATIVE_MB} MB.`);
+  }
+  if (!supabase) throw new Error("Storage is not configured");
+  const slot = await adminPost<{ path: string; token: string; publicUrl: string }>(
+    "/api/x/admin/video-upload-url", { ext },
+  );
+  const { error } = await supabase.storage
+    .from("event-posters")
+    .uploadToSignedUrl(slot.path, slot.token, file, { contentType: file.type || `image/${ext === "jpg" ? "jpeg" : ext}` });
+  if (error) throw new Error(error.message);
+  return slot.publicUrl;
+}

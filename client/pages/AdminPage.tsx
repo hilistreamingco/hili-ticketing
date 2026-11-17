@@ -53,6 +53,7 @@ import {
   getSiteSettings,
   saveSiteSettings,
   uploadBackgroundVideo,
+  uploadCreativeImage,
   supabase,
   type AdminEvent,
   type AdminTicketType,
@@ -281,8 +282,8 @@ function Overview() {
       </div>
 
       <MaintenanceToggle />
-
       <HeroVideoSetting />
+      <CreativesSetting />
 
       <CampaignsSection />
     </div>
@@ -338,7 +339,7 @@ function MaintenanceToggle() {
         </Button>
       </div>
       {err && <Banner ok={false} text={err} />}
-          </div>
+    </div>
   );
 }
 
@@ -424,6 +425,93 @@ function HeroVideoSetting() {
           onRemove={() => save("")}
           hint="Short silent loop, 10–20 seconds, ideally under 8 MB (max 25 MB). The hero image shows while it loads."
         />
+      </div>
+      {msg && <Banner ok={msg.ok} text={msg.text} />}
+    </div>
+  );
+}
+
+// Creatives: pictures from past events shown in the home page carousel.
+type CreativeRow = { image: string; caption: string };
+
+function CreativesSetting() {
+  const [rows, setRows] = useState<CreativeRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    getSiteSettings()
+      .then(s => {
+        if (Array.isArray(s.creatives)) {
+          setRows((s.creatives as any[]).filter(c => c && c.image).map(c => ({ image: String(c.image), caption: String(c.caption ?? "") })));
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const add = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setMsg(null);
+    try {
+      const image = await uploadCreativeImage(file);
+      setRows(r => [...r, { image, caption: "" }]);
+      setMsg({ ok: true, text: "Picture added. Write a caption and press Save." });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "Upload failed" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      await saveSiteSettings({ creatives: rows.map(r => ({ image: r.image, caption: r.caption.trim() })) });
+      setMsg({ ok: true, text: "Creatives saved. They show on the home page." });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "Could not save" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const move = (i: number, d: number) =>
+    setRows(r => { const j = i + d; if (j < 0 || j >= r.length) return r; const c = [...r]; [c[i], c[j]] = [c[j], c[i]]; return c; });
+
+  return (
+    <div className="mt-4 rounded-3xl border border-black/10 bg-white p-6">
+      <p className="text-xs font-semibold uppercase tracking-widest text-black/40">Home page creatives</p>
+      <p className="mt-2 max-w-xl text-sm text-black/50">
+        Pictures from past events, shown in a carousel. One picture shows plainly, two or more turn as a ring on computers and fade on phones. The section stays hidden until you add one.
+      </p>
+      <div className="mt-4 space-y-3">
+        {rows.map((r, i) => (
+          <div key={r.image} className="flex flex-wrap items-center gap-3 rounded-2xl border border-black/10 p-3">
+            <img src={r.image} alt="" className="h-20 w-16 shrink-0 rounded-lg object-cover" />
+            <input
+              value={r.caption}
+              onChange={e => setRows(rs => rs.map((x, k) => k === i ? { ...x, caption: e.target.value } : x))}
+              placeholder="Caption (shown only when this picture is in focus)"
+              className="min-w-0 flex-1 rounded-xl border border-black/15 px-3 py-2 text-sm"
+            />
+            <div className="flex gap-1">
+              <button type="button" onClick={() => move(i, -1)} className="rounded-lg border border-black/15 px-2 py-1 text-xs hover:bg-black/5" aria-label="Move earlier">↑</button>
+              <button type="button" onClick={() => move(i, 1)} className="rounded-lg border border-black/15 px-2 py-1 text-xs hover:bg-black/5" aria-label="Move later">↓</button>
+              <button type="button" onClick={() => setRows(rs => rs.filter((_, k) => k !== i))} className="rounded-lg border border-black/15 px-3 py-1 text-xs font-semibold hover:bg-black/5">Remove</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <label className="cursor-pointer rounded-xl bg-[#c1e51a] px-4 py-2 text-sm font-semibold text-black hover:bg-[#b1d410]">
+          {busy ? "Uploading…" : "Add picture"}
+          <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={busy}
+            onChange={e => { void add(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+        <Button onClick={() => void save()} disabled={saving} variant="outline" className="border-black/20">
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Save creatives
+        </Button>
       </div>
       {msg && <Banner ok={msg.ok} text={msg.text} />}
     </div>
@@ -898,9 +986,9 @@ function EventEditor({
     sales_override: draft.sales_override,
     campaign_id: draft.campaign_id || null,
     settings: {
-     ...((row?.settings as Record<string, unknown>) ?? {}),
-     bg_video_url: draft.bg_video_url.trim() || null,
-     trailer_url: draft.trailer_url.trim() || null,
+      ...((row?.settings as Record<string, unknown>) ?? {}),
+      bg_video_url: draft.bg_video_url.trim() || null,
+      trailer_url: draft.trailer_url.trim() || null,
     },
   });
 
@@ -1170,7 +1258,7 @@ function EventEditor({
                    hint="Whatever you type shows up on the event page. Leave blank for a default message." />
               </div>
             )}
-            
+
             <div className="mt-5 grid gap-4 rounded-2xl border border-black/10 bg-black/[0.02] p-4 sm:grid-cols-2">
               <VideoUpload
                 label="Banner video (optional)"

@@ -6,7 +6,9 @@ import EventCard from "@/components/EventCard";
 import { Button } from "@/components/ui/button";
 import {
   getEvents,
-  groupEventsByDate,
+  sortEvents,
+  startingPrice,
+  salesStatus,
   isPastEvent,
   subscribeToEvents,
   formatEventDate,
@@ -16,6 +18,7 @@ import {
 import { getCampaigns, type Campaign } from "@/lib/campaigns";
 import { getSiteSettings } from "@/lib/supabase";
 import VideoBackdrop from "@/components/VideoBackdrop";
+import CreativesCarousel, { type Creative } from "@/components/CreativesCarousel";
 
 const HERO_BG = "/hero-ticketing.jpg.jpeg";
 
@@ -24,6 +27,7 @@ export default function Index() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [heroVideo, setHeroVideo] = useState<string | null>(null);
+  const [creatives, setCreatives] = useState<Creative[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -37,7 +41,17 @@ export default function Index() {
     };
     void load();
     getSiteSettings()
-      .then((s) => { if (active && typeof s.hero_video_url === "string" && s.hero_video_url) setHeroVideo(s.hero_video_url); })
+      .then((s) => {
+        if (!active) return;
+        if (typeof s.hero_video_url === "string" && s.hero_video_url) setHeroVideo(s.hero_video_url);
+        if (Array.isArray(s.creatives)) {
+          setCreatives(
+            (s.creatives as any[])
+              .filter((c) => c && typeof c.image === "string" && c.image)
+              .map((c) => ({ image: c.image as string, caption: typeof c.caption === "string" ? c.caption : "" })),
+          );
+        }
+      })
       .catch(() => undefined);
     const unsub = subscribeToEvents(() => void load());
     return () => { active = false; unsub(); };
@@ -53,10 +67,9 @@ export default function Index() {
     );
   }
 
-  // Events that belong to a campaign are surfaced through the campaign page, not
-  // the standalone "More events" grid.
-  const standalone = events.filter((e) => !e.campaignId);
-  const groups = groupEventsByDate(standalone);
+  // Soonest upcoming events first; the home page shows at most two.
+  const upcomingAll = sortEvents(events).filter((e) => !isPastEvent(e));
+  const upcoming = upcomingAll.slice(0, 2);
 
   return (
     <Layout>
@@ -74,15 +87,11 @@ export default function Index() {
         </div>
         <div className="container flex min-h-[calc(100vh-4rem)] items-center py-16 lg:py-20">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#c1ff1a]" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80">Hili Events</span>
-            </div>
-            <h1 className="mt-6 font-display text-4xl font-bold leading-[.95] tracking-tight break-words [word-break:normal] sm:text-7xl">
-              Your seat to <span className="text-[#c1ff1a] whitespace-nowrap">unforgettable</span> nights.
+            <h1 className="font-display text-5xl font-bold leading-[.95] tracking-tight break-words [word-break:normal] sm:text-7xl lg:text-8xl">
+              Events by <span className="text-[#c1ff1a]">Hili</span>
             </h1>
-            <p className="mt-6 max-w-lg text-lg text-white/70">
-              From cinema screenings to afterparties and everything in between — discover events, grab your tickets, and show up ready to make memories.
+            <p className="mt-6 max-w-lg text-lg text-white/75">
+              Cinema nights, afterparties and live experiences. Find what is on, pick your seat or ticket, and show up ready to make memories.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="bg-[#c1ff1a] text-black hover:bg-[#a8e616]">
@@ -98,14 +107,55 @@ export default function Index() {
                 </Button>
               )}
             </div>
-            <div className="mt-12 flex flex-wrap gap-6 text-sm text-white/50">
-              <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4 text-[#c1ff1a]/70" /> Cinema & live events</span>
-              <span className="inline-flex items-center gap-2"><Ticket className="h-4 w-4 text-[#c1ff1a]/70" /> Instant e-tickets</span>
-              <span className="inline-flex items-center gap-2"><MapPin className="h-4 w-4 text-[#c1ff1a]/70" /> Nairobi & beyond</span>
-            </div>
           </div>
         </div>
       </section>
+
+      {/* Upcoming: at most two events, separated by a ticket-style line */}
+      <section className="bg-[#f4f1ea]">
+        <div className="container py-16 md:py-24">
+          <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-black/45">Coming up</p>
+          <h2 className="mt-4 font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">Upcoming events</h2>
+
+          {upcoming.length === 0 ? (
+            <p className="mt-8 max-w-md text-muted-foreground">New events are being lined up. Check back soon.</p>
+          ) : (
+            <div className="mt-10">
+              {upcoming.map((event, i) => (
+                <div key={event.id}>
+                  {i > 0 && (
+                    <div className="relative my-10 border-t-2 border-dashed border-black/20 md:my-14" aria-hidden="true">
+                      <span className="absolute left-1/2 top-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-[#c1ff1a] ring-[6px] ring-[#f4f1ea]" />
+                    </div>
+                  )}
+                  <UpcomingEvent event={event} flip={i % 2 === 1} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-10">
+            <Button asChild variant="outline" className="border-black/20">
+              <Link to="/events">
+                {upcomingAll.length > 2 ? `See all ${upcomingAll.length} upcoming events` : "See all events"} <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* Creatives: pictures from past events. Hidden until at least one is added in the admin. */}
+      {creatives.length > 0 && (
+        <section className="overflow-hidden bg-[#0b0b0b] text-white">
+          <div className="container py-16 md:py-24">
+            <p className="text-center text-[10px] font-semibold uppercase tracking-[.3em] text-white/45">The vibe</p>
+            <h2 className="mt-4 text-center font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">Moments from our events</h2>
+            <div className="mt-10 md:mt-14">
+              <CreativesCarousel items={creatives} />
+            </div>
+          </div>
+        </section>
+      )}
 
       {campaigns.length > 0 && (
         <section id="campaigns" className="bg-[#f4f1ea]">
@@ -146,160 +196,44 @@ export default function Index() {
           </div>
         </section>
       )}
-
-      {groups.length > 0 && (
-        <section className="bg-[#f4f1ea]">
-          <div className="container py-20 md:py-28">
-            <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-black/45">More events</p>
-            <h2 className="mt-5 max-w-md font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
-              Also happening at Hili.
-            </h2>
-            <div className="mt-12 space-y-12">
-              {groups.map((group) => (
-                <div key={group.date || "tba"}>
-                  <h3 className="border-b border-black/15 pb-3 font-display text-lg font-bold">
-                    {group.date ? formatEventDate(group.date) : "Date to be announced"}
-                  </h3>
-                  <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                    {group.events.map((event) => <EventCard key={event.id} event={event} />)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      <HiliEventsCalendar events={events} />
     </Layout>
   );
 }
 
-function HiliEventsCalendar({ events }: { events: HiliEvent[] }) {
-  const upcoming = events.filter((e) => !isPastEvent(e));
-  const hasEvents = upcoming.length > 0;
-
+function UpcomingEvent({ event, flip }: { event: HiliEvent; flip: boolean }) {
+  const sales = salesStatus(event);
+  const isGate = event.eventType === "gate";
+  const cta = isGate ? "View details" : sales.canBuy ? "Get tickets" : "View event";
   return (
-    <section className="bg-[#0b0b0b] text-white overflow-hidden">
-      <div className="container py-20 md:py-28">
-        <div className="flex items-center gap-3 mb-8 md:mb-12">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#c1ff1a]/10">
-            <CalendarDays className="h-6 w-6 text-[#c1ff1a]" />
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-white/45">Hili Events</p>
-            <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Events Calendar</h2>
-          </div>
-        </div>
-
-        {hasEvents ? (
-          <div className="relative">
-            <div className="absolute -inset-4 rounded-[2rem] bg-gradient-to-br from-[#c1ff1a]/10 via-transparent to-[#c1ff1a]/5 blur-2xl" />
-            <div className="relative rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-5 sm:p-8 md:p-12 shadow-2xl">
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#c1ff1a]/40 to-transparent" />
-
-              <div className="grid gap-6 sm:gap-8">
-                {upcoming.map((event, index) => (
-                  <Link
-                    key={event.id}
-                    to={`/events/${event.slug}`}
-                    className="group relative grid gap-5 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-5 transition-all duration-300 hover:border-[#c1ff1a]/30 hover:bg-white/[0.06] sm:grid-cols-[auto_1fr_auto] sm:items-center sm:gap-6 sm:p-6"
-                  >
-                    <div className="pointer-events-none absolute -left-20 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full bg-[#c1ff1a]/10 blur-3xl opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-
-                    <div className="relative flex items-center gap-4 sm:flex-col sm:items-start sm:gap-2">
-                      <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-2xl bg-[#c1ff1a] text-[#0b0b0b] sm:h-20 sm:w-24">
-                        <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">
-                          {event.date ? new Date(`${event.date}T00:00:00`).toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "TBA"}
-                        </span>
-                        <span className="font-display text-2xl font-bold leading-none sm:text-3xl">
-                          {event.date ? new Date(`${event.date}T00:00:00`).getDate() : "—"}
-                        </span>
-                      </div>
-                      <div className="sm:hidden">
-                        <h3 className="font-display text-lg font-bold leading-tight">{event.title}</h3>
-                        <p className="mt-1 text-xs text-white/50">Event {String(index + 1).padStart(2, "0")}</p>
-                      </div>
-                    </div>
-
-                    <div className="relative hidden sm:block">
-                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[.25em] text-[#c1ff1a]/70">Event {String(index + 1).padStart(2, "0")}</p>
-                      <h3 className="font-display text-xl font-bold leading-tight tracking-tight transition-colors group-hover:text-[#c1ff1a] md:text-2xl">
-                        {event.title}
-                      </h3>
-                      <p className="mt-2 line-clamp-2 max-w-xl text-sm leading-relaxed text-white/60">
-                        {event.shortDescription || "More details coming soon."}
-                      </p>
-                    </div>
-
-                    <div className="relative mt-2 flex flex-wrap items-center gap-3 text-xs text-white/60 sm:mt-0 sm:flex-col sm:items-end sm:gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <Clock3 className="h-3.5 w-3.5 text-[#c1ff1a]/60" />
-                        <span className="font-medium">
-                          {event.startTime ? formatEventTime(event.startTime) : "Time TBA"}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <MapPin className="h-3.5 w-3.5 text-[#c1ff1a]/60" />
-                        <span className="font-medium max-w-[180px] truncate">
-                          {event.venue || "Venue TBA"}
-                        </span>
-                      </div>
-                      <div className="mt-1 sm:mt-2">
-                        <span className="inline-flex items-center gap-1 rounded-full border border-white/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/70 transition-colors group-hover:border-[#c1ff1a]/40 group-hover:text-[#c1ff1a]">
-                          View details <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-
-              <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-6">
-                <p className="text-xs text-white/40">All times shown in Nairobi local time.</p>
-                <div className="flex items-center gap-2 text-xs text-white/40">
-                  <span className="inline-flex h-2 w-2 rounded-full bg-[#c1ff1a] animate-pulse" />
-                  <span>Schedule subject to change</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-10 sm:p-16 md:p-20 shadow-2xl">
-            <div className="absolute -top-32 -right-32 h-64 w-64 rounded-full bg-[#c1ff1a]/10 blur-3xl" />
-            <div className="absolute -bottom-32 -left-32 h-64 w-64 rounded-full bg-[#c1ff1a]/5 blur-3xl" />
-
-            <div className="relative flex flex-col items-center text-center">
-              <div className="relative mb-8">
-                <div className="absolute inset-0 rounded-full bg-[#c1ff1a]/20 blur-xl animate-pulse" />
-                <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-[#c1ff1a]/20 to-[#c1ff1a]/5 border border-[#c1ff1a]/20">
-                  <Sparkles className="h-12 w-12 text-[#c1ff1a]" />
-                </div>
-              </div>
-              <h3 className="max-w-lg font-display text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-                Hili is busy cooking up something.
-              </h3>
-              <p className="mt-5 max-w-md text-base leading-relaxed text-white/55 sm:text-lg">
-                An event schedule will be up sometime soon. We're curating experiences you won't want to miss. Check back later — or follow along to be the first to know.
-              </p>
-              <div className="mt-10 flex flex-wrap items-center justify-center gap-3 text-xs text-white/40">
-                <div className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5">
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#c1ff1a]" />
-                  Something's brewing
-                </div>
-                <div className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5">
-                  <CalendarDays className="h-3 w-3" />
-                  Drop date TBA
-                </div>
-                <div className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5">
-                  <Clock3 className="h-3 w-3" />
-                  Worth the wait
-                </div>
-              </div>
-            </div>
-          </div>
+    <article className="grid items-center gap-6 md:grid-cols-2 md:gap-12">
+      <Link
+        to={`/events/${event.slug}`}
+        className={`group block min-w-0 overflow-hidden rounded-2xl shadow-card ${flip ? "md:order-2" : ""}`}
+      >
+        <img
+          src={event.coverImage}
+          alt={event.title}
+          loading="lazy"
+          className="aspect-[16/10] w-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
+      </Link>
+      <div className="min-w-0">
+        {event.date && (
+          <p className="inline-flex items-center gap-2 text-sm font-semibold text-black/70">
+            <CalendarDays className="h-4 w-4 shrink-0" /> {formatEventDate(event.date)}
+            {event.startTime && <span className="text-black/45">· {formatEventTime(event.startTime)}</span>}
+          </p>
         )}
+        <h3 className="mt-3 font-display text-3xl font-bold leading-tight tracking-tight break-words sm:text-4xl">{event.title}</h3>
+        {event.shortDescription && <p className="mt-3 line-clamp-3 text-muted-foreground">{event.shortDescription}</p>}
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-black/60">
+          {event.venue && <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 shrink-0" /> {event.venue}</span>}
+          {!isGate && <span className="inline-flex items-center gap-1.5"><Ticket className="h-4 w-4 shrink-0" /> {startingPrice(event)}</span>}
+        </div>
+        <Button asChild className="mt-6 bg-[#0b0b0b] text-white hover:bg-black/80">
+          <Link to={`/events/${event.slug}`}>{cta} <ArrowRight className="ml-2 h-4 w-4" /></Link>
+        </Button>
       </div>
-    </section>
+    </article>
   );
 }
