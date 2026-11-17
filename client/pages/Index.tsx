@@ -89,7 +89,7 @@ export default function Index() {
           <div className="max-w-2xl">
             <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-[#c1ff1a]">Hili · Creative collective</p>
             <h1 className="mt-5 font-display text-5xl font-bold leading-[.95] tracking-tight break-words [word-break:normal] sm:text-7xl lg:text-8xl">
-              Made by creatives. <span className="text-[#c1ff1a]">Made for the culture.</span>
+             <span className="text-[#c1ff1a]">Made for the culture.</span>
             </h1>
             <p className="mt-6 max-w-lg text-lg text-white/75">
               Hili is where young creatives get seen. We curate the talent, connect the people shaping what is next, and throw the nights that bring everyone together.
@@ -97,7 +97,7 @@ export default function Index() {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="bg-[#c1ff1a] text-black hover:bg-[#a8e616]">
                 <a href={creatives.length > 0 ? "#creatives" : "#what-we-do"}>
-                  Meet the creatives <ArrowRight className="ml-2 h-4 w-4" />
+                  Our Vibe Curators <ArrowRight className="ml-2 h-4 w-4" />
                 </a>
               </Button>
               <Button asChild size="lg" variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10">
