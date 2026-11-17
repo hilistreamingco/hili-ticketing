@@ -523,6 +523,29 @@ app.put('/api/x/admin/site-settings', async (req, res) => {
   }
 });
 
+// Background videos are too big to pass through a Vercel function (4.5 MB body
+// limit). This hands the browser a one-time signed slot so it uploads straight
+// to storage. Admin only; no new function, it lives in this same file.
+app.post('/api/x/admin/video-upload-url', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const ext = String(req.body?.ext ?? 'mp4').toLowerCase();
+    if (!['mp4', 'webm', 'mov'].includes(ext)) {
+      return res.status(400).json({ error: 'Video must be .mp4, .webm or .mov' });
+    }
+    const supabase = getSupabase();
+    const path = `videos/${randomUUID()}.${ext}`;
+    const { data, error } = await supabase.storage.from('event-posters').createSignedUploadUrl(path);
+    if (error) throw error;
+    const { data: pub } = supabase.storage.from('event-posters').getPublicUrl(path);
+    res.json({ path, token: data.token, publicUrl: pub.publicUrl });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not prepare the upload' });
+  }
+});
+
 // Cinema price brackets (pricing_mode = 'seats_taken')
 app.get('/api/x/admin/brackets', async (req, res) => {
   try {

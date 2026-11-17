@@ -82,6 +82,8 @@ export interface HiliEvent {
   seatsTotal: number;
   seatsTaken: number;
   campaignId: string | null;
+  bgVideoUrl: string | null;
+  trailerUrl: string | null;
 }
 
 export const categories = [
@@ -198,6 +200,8 @@ export function mapEvent(ev: any, overview: SalesOverview, listState?: SalesStat
     seatsTotal: overview?.seats_total ?? 0,
     seatsTaken: overview?.seats_taken ?? 0,
     campaignId: ev.campaign_id ?? null,
+    bgVideoUrl: ((ev.settings as any)?.bg_video_url as string | undefined) || null,
+    trailerUrl: ((ev.settings as any)?.trailer_url as string | undefined) || null,
   };
 }
 

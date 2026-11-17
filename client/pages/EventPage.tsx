@@ -7,6 +7,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import Layout from "@/components/layout/Layout";
+import VideoBackdrop from "@/components/VideoBackdrop";
+import TrailerButton from "@/components/TrailerPlayer";
 import PlaceholderPage from "@/components/PlaceholderPage";
 import { formatEventDate, formatEventTime, getEventBySlug, salesStatus, subscribeToEvents, startingPrice, type HiliEvent } from "@/lib/events";
 import { formatNairobi } from "@/lib/time";
@@ -97,10 +99,16 @@ export default function EventPage() {
         </div>
 
         {/* Hero / posters */}
-        <section className="container w-full max-w-full pt-5 pb-4 md:pt-6 md:pb-6">
+                <section className="container w-full max-w-full pt-5 pb-4 md:pt-6 md:pb-6">
           <div className="relative w-full max-w-full overflow-hidden rounded-[var(--event-radius)]">
-            <img src={event.coverImage} alt={event.title} className="aspect-[16/8] w-full max-w-full object-cover sm:aspect-[16/6]" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+            {event.bgVideoUrl ? (
+              <div className="relative aspect-[16/8] w-full max-w-full sm:aspect-[16/6]">
+                <VideoBackdrop src={event.bgVideoUrl} poster={event.coverImage} />
+              </div>
+            ) : (
+              <img src={event.coverImage} alt={event.title} className="aspect-[16/8] w-full max-w-full object-cover sm:aspect-[16/6]" />
+            )}
+            <div className={`absolute inset-0 bg-gradient-to-t ${event.bgVideoUrl ? "from-black/85 via-black/35 to-black/20" : "from-black/75 via-black/10 to-transparent"}`} />
             <div className="absolute bottom-5 left-5 right-5 max-w-full text-white md:bottom-8 md:left-8">
               <span
                 className="mb-3 inline-flex max-w-full rounded-full px-3 py-1 text-xs font-semibold break-words"
@@ -111,6 +119,7 @@ export default function EventPage() {
               <h1 className="w-full max-w-full font-display text-3xl font-bold leading-tight tracking-tight break-words sm:text-4xl md:text-6xl">
                 {event.title}
               </h1>
+              <TrailerButton url={event.trailerUrl} title={event.title} />
             </div>
           </div>
 

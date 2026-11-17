@@ -52,6 +52,7 @@ import {
   deleteAdminCampaign,
   getSiteSettings,
   saveSiteSettings,
+  uploadBackgroundVideo,
   supabase,
   type AdminEvent,
   type AdminTicketType,
@@ -281,6 +282,8 @@ function Overview() {
 
       <MaintenanceToggle />
 
+      <HeroVideoSetting />
+
       <CampaignsSection />
     </div>
   );
@@ -335,6 +338,94 @@ function MaintenanceToggle() {
         </Button>
       </div>
       {err && <Banner ok={false} text={err} />}
+          </div>
+  );
+}
+
+// Pick a video from the computer and upload it. Used for the home hero and event banners.
+function VideoUpload({
+  label, value, onUploaded, onRemove, hint,
+}: {
+  label: string; value: string; hint?: string;
+  onUploaded: (url: string) => void | Promise<void>;
+  onRemove: () => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setErr(null);
+    try {
+      const url = await uploadBackgroundVideo(file);
+      await onUploaded(url);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-sm font-semibold">{label}</p>
+      {value ? (
+        <video src={value} muted loop playsInline autoPlay className="mt-2 aspect-video w-full max-w-xs rounded-xl bg-black object-cover" />
+      ) : (
+        <p className="mt-2 text-sm text-black/45">No video. The image is used.</p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <label className="cursor-pointer rounded-xl bg-[#c1e51a] px-4 py-2 text-sm font-semibold text-black hover:bg-[#b1d410]">
+          {busy ? "Uploading…" : value ? "Replace video" : "Upload video"}
+          <input type="file" accept="video/mp4,video/webm,video/quicktime" className="hidden" disabled={busy}
+            onChange={e => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+        {value && !busy && (
+          <button type="button" onClick={() => void onRemove()} className="rounded-xl border border-black/15 px-4 py-2 text-sm font-semibold hover:bg-black/5">
+            Remove
+          </button>
+        )}
+      </div>
+      {hint && <p className="mt-2 text-xs text-black/45">{hint}</p>}
+      {err && <p className="mt-2 text-xs font-medium text-red-600">{err}</p>}
+    </div>
+  );
+}
+
+// Home page hero background video. Saves as soon as the upload finishes.
+function HeroVideoSetting() {
+  const [url, setUrl] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    getSiteSettings()
+      .then(s => setUrl(typeof s.hero_video_url === "string" ? s.hero_video_url : ""))
+      .catch(() => undefined);
+  }, []);
+
+  const save = async (next: string) => {
+    try {
+      await saveSiteSettings({ hero_video_url: next });
+      setUrl(next);
+      setMsg({ ok: true, text: next ? "Hero video saved." : "Hero video removed. The image will show." });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "Could not save" });
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-3xl border border-black/10 bg-white p-6">
+      <p className="text-xs font-semibold uppercase tracking-widest text-black/40">Home page hero video</p>
+      <div className="mt-4">
+        <VideoUpload
+          label="Background clip behind the home page title"
+          value={url}
+          onUploaded={save}
+          onRemove={() => save("")}
+          hint="Short silent loop, 10–20 seconds, ideally under 8 MB (max 25 MB). The hero image shows while it loads."
+        />
+      </div>
+      {msg && <Banner ok={msg.ok} text={msg.text} />}
     </div>
   );
 }
@@ -676,6 +767,7 @@ type Draft = {
   ticket_prefix: string; max_seats_per_order: string; pricing_mode: PricingMode;
   sales_close_at: string; sales_override: SalesOverride;
   campaign_id: string;
+  bg_video_url: string; trailer_url: string;
 };
 
 const emptyDraft: Draft = {
@@ -687,6 +779,7 @@ const emptyDraft: Draft = {
   ticket_prefix: "", max_seats_per_order: "6", pricing_mode: "tiers",
   sales_close_at: "", sales_override: "auto",
   campaign_id: "",
+  bg_video_url: "", trailer_url: "",
 };
 
 function draftFrom(ev: AdminEvent): Draft {
@@ -710,6 +803,8 @@ function draftFrom(ev: AdminEvent): Draft {
     sales_close_at: isoToNairobiInput(ev.sales_close_at),
     sales_override: ev.sales_override ?? "auto",
     campaign_id: ev.campaign_id ?? "",
+    bg_video_url: String((ev.settings as any)?.bg_video_url ?? ""),
+    trailer_url: String((ev.settings as any)?.trailer_url ?? ""),
   };
 }
 
@@ -802,6 +897,11 @@ function EventEditor({
     sales_close_at: nairobiInputToIso(draft.sales_close_at),
     sales_override: draft.sales_override,
     campaign_id: draft.campaign_id || null,
+    settings: {
+     ...((row?.settings as Record<string, unknown>) ?? {}),
+     bg_video_url: draft.bg_video_url.trim() || null,
+     trailer_url: draft.trailer_url.trim() || null,
+    },
   });
 
   // Returns the saved event, or null. A brand-new event is only created when
@@ -1070,6 +1170,18 @@ function EventEditor({
                    hint="Whatever you type shows up on the event page. Leave blank for a default message." />
               </div>
             )}
+            
+            <div className="mt-5 grid gap-4 rounded-2xl border border-black/10 bg-black/[0.02] p-4 sm:grid-cols-2">
+              <VideoUpload
+                label="Banner video (optional)"
+                value={draft.bg_video_url}
+                onUploaded={url => { set("bg_video_url", url); showMsg("Video uploaded. Press Save to apply it.", true); }}
+                onRemove={() => { set("bg_video_url", ""); showMsg("Video removed. Press Save to apply.", true); }}
+                hint="Short silent loop (10–20 s, ideally under 8 MB, max 25 MB). Replaces the banner image." />
+              <F label="Trailer link, YouTube (optional)" value={draft.trailer_url} onChange={v => set("trailer_url", v)}
+                placeholder="https://youtu.be/… or Vimeo or .mp4"
+                hint="Adds a 'Watch trailer' button on the banner that opens a mini player. Leave empty for no button." />
+            </div>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <F label="Ticket prefix" value={draft.ticket_prefix} onChange={v => set("ticket_prefix", v.toUpperCase())}

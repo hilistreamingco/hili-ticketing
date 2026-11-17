@@ -14,6 +14,8 @@ import {
   type HiliEvent,
 } from "@/lib/events";
 import { getCampaigns, type Campaign } from "@/lib/campaigns";
+import { getSiteSettings } from "@/lib/supabase";
+import VideoBackdrop from "@/components/VideoBackdrop";
 
 const HERO_BG = "/hero-ticketing.jpg.jpeg";
 
@@ -21,6 +23,7 @@ export default function Index() {
   const [events, setEvents] = useState<HiliEvent[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
+  const [heroVideo, setHeroVideo] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -33,6 +36,9 @@ export default function Index() {
       }
     };
     void load();
+    getSiteSettings()
+      .then((s) => { if (active && typeof s.hero_video_url === "string" && s.hero_video_url) setHeroVideo(s.hero_video_url); })
+      .catch(() => undefined);
     const unsub = subscribeToEvents(() => void load());
     return () => { active = false; unsub(); };
   }, []);
@@ -57,7 +63,11 @@ export default function Index() {
       {/* Hero — site introduction with the ticket image as an atmospheric background */}
       <section className="relative isolate overflow-hidden bg-[#0b0b0b] text-white">
         <div className="absolute inset-0 -z-10">
-          <img src={HERO_BG} alt="" className="h-full w-full object-cover opacity-60" />
+          {heroVideo ? (
+            <VideoBackdrop src={heroVideo} poster={HERO_BG} className="opacity-70" />
+          ) : (
+            <img src={HERO_BG} alt="" className="h-full w-full object-cover opacity-60" />
+          )}
           <div className="absolute inset-0 bg-[#0b0b0b]/30" />
           <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0b]/50 via-transparent to-[#0b0b0b]" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#0b0b0b] via-[#0b0b0b]/30 to-transparent" />

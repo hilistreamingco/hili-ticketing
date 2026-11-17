@@ -593,3 +593,23 @@ export async function getSiteSettings(): Promise<SiteSettings> {
 export async function saveSiteSettings(patch: SiteSettings): Promise<void> {
   await adminPut("/api/x/admin/site-settings", patch);
 }
+
+export const MAX_VIDEO_MB = 25;
+
+/** Uploads a background video straight to storage and returns its public link. */
+export async function uploadBackgroundVideo(file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (!["mp4", "webm", "mov"].includes(ext)) throw new Error("Choose an .mp4, .webm or .mov video");
+  if (file.size > MAX_VIDEO_MB * 1024 * 1024) {
+    throw new Error(`That video is ${(file.size / 1048576).toFixed(1)} MB. Keep it under ${MAX_VIDEO_MB} MB (ideally under 8 MB).`);
+  }
+  if (!supabase) throw new Error("Storage is not configured");
+  const slot = await adminPost<{ path: string; token: string; publicUrl: string }>(
+    "/api/x/admin/video-upload-url", { ext },
+  );
+  const { error } = await supabase.storage
+    .from("event-posters")
+    .uploadToSignedUrl(slot.path, slot.token, file, { contentType: file.type || `video/${ext}` });
+  if (error) throw new Error(error.message);
+  return slot.publicUrl;
+}
