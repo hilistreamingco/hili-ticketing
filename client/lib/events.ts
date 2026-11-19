@@ -7,6 +7,7 @@
  */
 import { supabase } from "./supabase";
 import { formatNairobi } from "./time";
+import { BRAND } from "../config/brand";
 
 export interface EventTheme {
   mode: "light" | "dark";
@@ -82,8 +83,12 @@ export interface HiliEvent {
   seatsTotal: number;
   seatsTaken: number;
   campaignId: string | null;
+  /** Silent looping background video for the event banner (from event settings). */
   bgVideoUrl: string | null;
+  /** Trailer link (YouTube, Vimeo or video file). */
   trailerUrl: string | null;
+  /** Set when this event is a showtime of a movie. */
+  movieId: string | null;
 }
 
 export const categories = [
@@ -157,7 +162,7 @@ export function mapEvent(ev: any, overview: SalesOverview, listState?: SalesStat
     title: (ev.name as string) ?? "Untitled Event",
     shortDescription: (ev.short_description as string) ?? "",
     description: (ev.description as string) ?? "",
-    category: "Hili Event",
+    category: "Event",
     coverImage: (ev.poster_path as string) ?? "/placeholder-event.jpg",
     coverImage2: (ev.poster2_path as string | null) ?? null,
     logoText: ((ev.name as string) ?? "HILI").toUpperCase(),
@@ -168,7 +173,7 @@ export function mapEvent(ev: any, overview: SalesOverview, listState?: SalesStat
     city: (ev.city as string) ?? "Nairobi",
     address: (ev.address as string) ?? "",
     mapUrl: (ev.venue_map_url as string) ?? "",
-    organizer: { name: "Hili Streaming", avatar: "/favicon.svg" },
+    organizer: { name: BRAND.name, avatar: "/favicon.svg" },
     ageRestriction: "18+",
     policies: [
       "Valid ID required for entry",
@@ -202,6 +207,7 @@ export function mapEvent(ev: any, overview: SalesOverview, listState?: SalesStat
     campaignId: ev.campaign_id ?? null,
     bgVideoUrl: ((ev.settings as any)?.bg_video_url as string | undefined) || null,
     trailerUrl: ((ev.settings as any)?.trailer_url as string | undefined) || null,
+    movieId: (ev.movie_id as string | null) ?? null,
   };
 }
 

@@ -307,7 +307,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           `<tr><td style="padding: 8px 0; color: #666; width: 140px;">${label}</td><td style="padding: 8px 0; ${extra}">${value}</td></tr>`;
 
         await resend.emails.send({
-          from: 'Events by Hili <onboarding@resend.dev>',
+          from: `${process.env.BRAND_NAME || 'Tiketi'} <onboarding@resend.dev>`,
           to: [opsEmail],
           subject: `🎟️ New Order: ${orderNumber} - ${event.name} - KES ${amountKes}`,
           html: `

@@ -12,6 +12,8 @@ import { Analytics } from "@vercel/analytics/react";
 import Index from "./pages/Index";
 import EventPage from "./pages/EventPage";
 import CampaignPage from "./pages/CampaignPage";
+import MoviesPage from "./pages/MoviesPage";
+import MoviePage from "./pages/MoviePage";
 import TicketSelectionPage from "./pages/TicketSelectionPage";
 import SeatSelectionPage from "./pages/SeatSelectionPage";
 import AttendeePage from "./pages/AttendeePage";
@@ -26,6 +28,7 @@ import Layout from "./components/layout/Layout";
 import EventCard from "./components/EventCard";
 import { getEvents, groupEventsByDate, formatEventDate, subscribeToEvents, type HiliEvent } from "./lib/events";
 import { getSiteSettings } from "./lib/supabase";
+import { BRAND } from "./config/brand";
 
 const queryClient = new QueryClient();
 
@@ -54,7 +57,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolea
     if (this.state.crashed) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b0b0b] px-6 text-center text-white">
-          <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#c1ff1a]">Hili Events</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#c1ff1a]">{BRAND.name}</p>
           <h1 className="mt-4 font-display text-3xl font-bold tracking-tight">Something went wrong.</h1>
           <p className="mt-3 max-w-sm text-sm text-white/60">Please reload the page to try again.</p>
           <button
@@ -85,7 +88,7 @@ function EventsPage() {
     let active = true;
     const load = async () => {
       const rows = await getEvents();
-      if (active) { setEvents(rows); setLoading(false); }
+      if (active) { setEvents(rows.filter((e) => !e.movieId)); setLoading(false); }
     };
     void load();
     const unsub = subscribeToEvents(() => void load());
@@ -125,6 +128,8 @@ function App() {
     <Route path="/" element={<Index />} />
     <Route path="/events" element={<EventsPage />} />
     <Route path="/events/:slug" element={<EventPage />} />
+    <Route path="/movies" element={<MoviesPage />} />
+    <Route path="/movies/:slug" element={<MoviePage />} />
     <Route path="/campaign/:slug" element={<CampaignPage />} />
     <Route path="/upcoming" element={<Navigate to="/events" replace />} />
     <Route path="/future" element={<Navigate to="/events" replace />} />
@@ -182,7 +187,7 @@ function MaintenancePage() {
         <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-full bg-[#c1ff1a]/10 border border-[#c1ff1a]/30">
           <HardHat className="h-10 w-10 text-[#c1ff1a]" />
         </div>
-        <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#c1ff1a]">Events by Hili</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#c1ff1a]">Hili</p>
         <h1 className="mt-6 font-display text-4xl font-bold tracking-tight sm:text-6xl">
           We're making something great.
         </h1>

@@ -1,13 +1,14 @@
 import { ArrowLeft, AtSign, Mail, MessageCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import Layout from "@/components/layout/Layout";
+import { BRAND } from "@/config/brand";
 
 // No form on purpose: messages go straight to the team's own email, so the site has nothing to send,
 // store or keep running for this page.
-const EMAIL = "hilistreaming.co@gmail.com";
-const WHATSAPP_NUMBER = "254796429978";
-const WHATSAPP_DISPLAY = "0796 429 978";
-const WHATSAPP_MESSAGE = encodeURIComponent("Hi Hili! I have a question about your events/tickets.");
+const EMAIL = BRAND.contactEmail;
+const WHATSAPP_NUMBER = BRAND.whatsappNumber;
+const WHATSAPP_DISPLAY = BRAND.whatsappDisplay;
+const WHATSAPP_MESSAGE = encodeURIComponent(`Hi ${BRAND.name}! I have a question about events and tickets.`);
 
 export default function ContactPage() {
   return (
@@ -17,9 +18,9 @@ export default function ContactPage() {
           <ArrowLeft className="h-4 w-4" /> Back home
         </Link>
         <p className="mt-10 text-[10px] font-semibold uppercase tracking-[.3em] text-primary">Get in touch</p>
-        <h1 className="mt-3 font-display text-5xl font-bold tracking-tight">Talk to Hili.</h1>
+        <h1 className="mt-3 font-display text-5xl font-bold tracking-tight">We're here to help.</h1>
         <p className="mt-4 max-w-lg leading-7 text-muted-foreground">
-          Questions about an event, ticketing, or working together? Email us and we'll get back to you.
+          Questions about an event, an order, or selling tickets with us? Reach out and we'll get back to you.
         </p>
 
         <div className="mt-10 space-y-3">
@@ -42,11 +43,11 @@ export default function ContactPage() {
               <span className="mt-0.5 block font-display text-lg font-bold">{WHATSAPP_DISPLAY}</span>
             </span>
           </a>
-          <a href="https://www.instagram.com/madebyhili/?hl=en" target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-3xl border border-border bg-card p-6 shadow-card transition-colors hover:border-foreground/40">
+          <a href={BRAND.instagramUrl} target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-3xl border border-border bg-card p-6 shadow-card transition-colors hover:border-foreground/40">
             <AtSign className="h-6 w-6 shrink-0 text-primary" />
             <span>
               <span className="block text-xs font-semibold uppercase tracking-widest text-muted-foreground">Instagram</span>
-              <span className="mt-0.5 block font-display text-lg font-bold">@madebyhili</span>
+              <span className="mt-0.5 block font-display text-lg font-bold">Instagram</span>
             </span>
           </a>
         </div>

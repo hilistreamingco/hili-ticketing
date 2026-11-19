@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import QRCode from 'qrcode';
+import { BRAND } from '../config/brand';
 
 /**
  * Ticket PDF: one landscape ticket per page, one page per person.
@@ -136,7 +137,7 @@ export async function generateTicketPDF(tickets: TicketData[]): Promise<Blob> {
     doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
-    doc.text('HILI', LEFT, 6.7);
+    doc.text(BRAND.name.toUpperCase(), LEFT, 6.7);
     doc.setFontSize(7);
     doc.text(seat ? 'CINEMA TICKET  |  ADMIT ONE' : 'ADMIT ONE', PAGE_W - LEFT, 6.7, { align: 'right' });
 
@@ -295,7 +296,7 @@ export function ticketEmailBody(opts: {
     `Questions? Reply to this email or write to ${SUPPORT_EMAIL}.`,
     '',
     'See you there,',
-    'The Hili team',
+    `The ${BRAND.name} team`,
   ].join('\n');
 }
 

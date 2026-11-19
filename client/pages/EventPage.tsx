@@ -99,7 +99,7 @@ export default function EventPage() {
         </div>
 
         {/* Hero / posters */}
-                <section className="container w-full max-w-full pt-5 pb-4 md:pt-6 md:pb-6">
+        <section className="container w-full max-w-full pt-5 pb-4 md:pt-6 md:pb-6">
           <div className="relative w-full max-w-full overflow-hidden rounded-[var(--event-radius)]">
             {event.bgVideoUrl ? (
               <div className="relative aspect-[16/8] w-full max-w-full sm:aspect-[16/6]">
@@ -114,7 +114,7 @@ export default function EventPage() {
                 className="mb-3 inline-flex max-w-full rounded-full px-3 py-1 text-xs font-semibold break-words"
                 style={{ backgroundColor: "var(--event-primary)", color: "var(--event-foreground)" }}
               >
-                {isGate ? "Hili Event · Gate entry" : event.category}
+                {isGate ? "Gate entry" : event.category}
               </span>
               <h1 className="w-full max-w-full font-display text-3xl font-bold leading-tight tracking-tight break-words sm:text-4xl md:text-6xl">
                 {event.title}
@@ -165,7 +165,7 @@ export default function EventPage() {
                 ))}
               </div>
             </section>
-            
+
             {/* Organizer */}
             <section className="flex w-full max-w-full items-center gap-3">
               <img src={event.organizer.avatar} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
