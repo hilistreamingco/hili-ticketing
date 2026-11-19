@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../lib/auth.js';
+import { getAuthedUser, getServiceClient, canManageEvents, ownsEvent } from '../lib/auth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
@@ -12,7 +12,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const user = await getAuthedUser(req.headers.authorization as string);
-    if (!isHiliAdmin(user)) {
+    if (!canManageEvents(user)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -24,6 +24,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const supabase = getServiceClient();
     if (!supabase) {
       return res.status(500).json({ error: 'Missing Supabase config' });
+    }
+
+    if (!(await ownsEvent(supabase, user, id))) {
+      return res.status(403).json({ error: 'That event belongs to another company.' });
     }
 
     const { data, error } = await supabase

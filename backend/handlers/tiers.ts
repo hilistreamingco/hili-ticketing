@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../lib/auth.js';
+import { getAuthedUser, getServiceClient, canManageEvents, ownsEvent } from '../lib/auth.js';
 import { cleanTierFields } from '../lib/tier-fields.js';
 
 // POST - create a ticket tier (early bird, advance, special offer, ...) for any event.
@@ -14,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const user = await getAuthedUser(req.headers.authorization as string);
-    if (!isHiliAdmin(user)) {
+    if (!canManageEvents(user)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -26,6 +26,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const body = req.body || {};
     if (!body.event_id || typeof body.event_id !== 'string') {
       return res.status(400).json({ error: 'event_id is required' });
+    }
+
+    if (!(await ownsEvent(supabase, user, body.event_id))) {
+      return res.status(403).json({ error: 'That event belongs to another company.' });
     }
 
     const { fields, error: invalid } = cleanTierFields(body, true);

@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import express from 'express';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin, canUsePrestige } from '../backend/lib/auth.js';
+import { getAuthedUser, getServiceClient, isHiliAdmin, canUsePrestige, isCompanyAdmin, canManageEvents, ownsCompany } from '../backend/lib/auth.js';
+import { derivePrefix, uniquePrefix } from '../backend/lib/event-fields.js';
 import eventsHandler from '../backend/handlers/events.js';
 import eventHandler from '../backend/handlers/event.js';
 import eventTicketsHandler from '../backend/handlers/eventTickets.js';
@@ -529,7 +530,7 @@ app.put('/api/x/admin/site-settings', async (req, res) => {
 app.post('/api/x/admin/video-upload-url', async (req, res) => {
   try {
     const user = await getAuthedUser(req.headers.authorization);
-    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    if (!canManageEvents(user)) return res.status(401).json({ error: 'Unauthorized' });
 
     const ext = String(req.body?.ext ?? 'mp4').toLowerCase();
     const isVideo = ['mp4', 'webm', 'mov'].includes(ext);
@@ -545,6 +546,185 @@ app.post('/api/x/admin/video-upload-url', async (req, res) => {
     res.json({ path, token: data.token, publicUrl: pub.publicUrl });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Could not prepare the upload' });
+  }
+});
+
+// ── Movies and showtimes ────────────────────────────────────────────────────
+// A movie is one film. A showtime is a cinema event linked to it, so seats,
+// holds, orders, tickets and codes all work exactly as they do for any event.
+const isStaff = (user: any) => isHiliAdmin(user) || canUsePrestige(user);
+const LOOKS = ['desert', 'heroic', 'noir', 'midnight', 'ember'];
+
+function cleanMovie(body: any, creating: boolean): { fields?: Record<string, unknown>; error?: string } {
+  const f: Record<string, unknown> = {};
+  const text = (k: string, max = 2000) => {
+    if (body[k] === undefined) return;
+    f[k] = body[k] === null || body[k] === '' ? null : String(body[k]).trim().slice(0, max);
+  };
+  ['tagline', 'poster_url', 'backdrop_url', 'backdrop_video_url', 'trailer_url', 'rating', 'genres'].forEach((k) => text(k, 400));
+  text('synopsis', 4000);
+  if (creating || body.title !== undefined) {
+    const t = String(body.title ?? '').trim().slice(0, 120);
+    if (!t) return { error: 'The movie needs a title' };
+    f.title = t;
+  }
+  if (body.runtime_min !== undefined) {
+    if (body.runtime_min === null || body.runtime_min === '') f.runtime_min = null;
+    else {
+      const n = Math.floor(Number(body.runtime_min));
+      if (!(n >= 1 && n <= 600)) return { error: 'Runtime must be between 1 and 600 minutes' };
+      f.runtime_min = n;
+    }
+  }
+  if (body.look !== undefined) {
+    if (!LOOKS.includes(body.look)) return { error: 'Unknown look' };
+    f.look = body.look;
+  }
+  if (body.accent !== undefined) {
+    if (body.accent === null || body.accent === '') f.accent = null;
+    else if (/^#[0-9a-fA-F]{6}$/.test(String(body.accent))) f.accent = String(body.accent);
+    else return { error: 'Accent must be a colour like #d9a05b' };
+  }
+  if (body.is_published !== undefined) f.is_published = Boolean(body.is_published);
+  return { fields: f };
+}
+
+app.get('/api/x/admin/movies', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const supabase = getSupabase();
+    const { data: movies, error } = await supabase.from('movies').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    const { data: shows } = await supabase
+      .from('events')
+      .select('id, movie_id, slug, event_date, start_time, status, ticket_prefix')
+      .not('movie_id', 'is', null)
+      .order('event_date', { ascending: true })
+      .order('start_time', { ascending: true });
+    const { data: templates } = await supabase
+      .from('events')
+      .select('id, name, event_date, start_time, status, movie_id')
+      .eq('event_type', 'cinema')
+      .order('created_at', { ascending: false });
+    res.json({ movies: movies || [], showtimes: shows || [], templates: templates || [] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not load movies' });
+  }
+});
+
+app.post('/api/x/admin/movies', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { fields, error: invalid } = cleanMovie(req.body || {}, true);
+    if (invalid || !fields) return res.status(400).json({ error: invalid });
+    const base = String(fields.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'movie';
+    const supabase = getSupabase();
+    const { data: clash } = await supabase.from('movies').select('id').eq('slug', base).maybeSingle();
+    const { data, error } = await supabase.from('movies').insert({ ...fields, slug: clash ? `${base}-${Date.now()}` : base }).select().single();
+    if (error) throw error;
+    res.status(201).json({ movie: data });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not add the movie' });
+  }
+});
+
+app.put('/api/x/admin/movies/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { fields, error: invalid } = cleanMovie(req.body || {}, false);
+    if (invalid || !fields) return res.status(400).json({ error: invalid });
+    if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'Nothing to change' });
+    const { data, error } = await getSupabase().from('movies').update(fields).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ movie: data });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not save the movie' });
+  }
+});
+
+app.delete('/api/x/admin/movies/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const supabase = getSupabase();
+    const { count } = await supabase.from('events').select('id', { count: 'exact', head: true }).eq('movie_id', req.params.id);
+    if ((count ?? 0) > 0) return res.status(409).json({ error: 'This movie has showtimes. Unpublish it instead of deleting it.' });
+    const { error } = await supabase.from('movies').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not delete the movie' });
+  }
+});
+
+// Add showtimes: each new showtime copies a template showtime (hall, seat map,
+// prices, sales rules) with a new date and time and its own ticket prefix.
+app.post('/api/x/admin/showtimes', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { movieId, templateEventId, shows } = req.body || {};
+    if (!movieId || !templateEventId || !Array.isArray(shows) || shows.length === 0) {
+      return res.status(400).json({ error: 'Choose a movie, a showtime to copy and at least one date and time' });
+    }
+    if (shows.length > 40) return res.status(400).json({ error: 'Add up to 40 showtimes at a time' });
+    const supabase = getSupabase();
+    const { data: movie } = await supabase.from('movies').select('id, title, poster_url, synopsis, tagline').eq('id', movieId).maybeSingle();
+    if (!movie) return res.status(404).json({ error: 'Movie not found' });
+    const { data: tpl } = await supabase.from('events').select('*').eq('id', templateEventId).maybeSingle();
+    if (!tpl || tpl.event_type !== 'cinema') return res.status(400).json({ error: 'The showtime to copy must be a cinema event' });
+    const { data: brackets } = await supabase.from('event_price_brackets').select('from_seat, price_kes').eq('event_id', tpl.id);
+    const { data: tiers } = await supabase.from('ticket_types').select('*').eq('event_id', tpl.id);
+
+    const created: any[] = [];
+    for (const show of shows) {
+      const date = String(show?.date ?? '');
+      const start = String(show?.start_time ?? '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}/.test(start)) {
+        return res.status(400).json({ error: 'Every showtime needs a date and a time', created });
+      }
+      const { id: _id, created_at: _c, updated_at: _u, ticket_counter: _t, ...rest } = tpl as any;
+      const slug = `${String(movie.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'movie'}-${date}-${start.slice(0, 5).replace(':', '')}`;
+      const { data: clash } = await supabase.from('events').select('id').eq('slug', slug).maybeSingle();
+      if (clash) continue; // that showtime already exists
+      const prefix = await uniquePrefix(supabase, derivePrefix(String(movie.title)));
+      const { data: ev, error } = await supabase
+        .from('events')
+        .insert({
+          ...rest,
+          slug,
+          name: movie.title,
+          movie_id: movie.id,
+          event_date: date,
+          start_time: start.length === 5 ? `${start}:00` : start,
+          end_time: null,
+          ticket_prefix: prefix,
+          ticket_counter: 0,
+          sales_close_at: null,
+          ...(movie.poster_url ? { poster_path: movie.poster_url } : {}),
+        })
+        .select()
+        .single();
+      if (error) return res.status(500).json({ error: error.message, created });
+      if (brackets?.length) {
+        await supabase.from('event_price_brackets').insert(brackets.map((b: any) => ({ event_id: ev.id, from_seat: b.from_seat, price_kes: b.price_kes })));
+      }
+      if (tiers?.length) {
+        await supabase.from('ticket_types').insert(
+          tiers.map((t: any) => {
+            const { id: _tid, created_at: _tc, updated_at: _tu, ...tr } = t;
+            return { ...tr, event_id: ev.id, quantity_sold: 0 };
+          }),
+        );
+      }
+      created.push({ id: ev.id, slug: ev.slug, event_date: ev.event_date, start_time: ev.start_time });
+    }
+    res.status(201).json({ created });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Could not add showtimes' });
   }
 });
 
@@ -581,7 +761,7 @@ app.post('/api/discount-check', rateLimited, async (req, res) => {
 app.get('/api/x/admin/discount-report', async (req, res) => {
   try {
     const user = await getAuthedUser(req.headers.authorization);
-    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
     const eventId = typeof req.query.eventId === 'string' && req.query.eventId ? req.query.eventId : null;
     const { data, error } = await getSupabase().rpc('discount_report', { p_event: eventId });
     if (error) throw error;
@@ -638,7 +818,7 @@ function cleanDiscountFields(body: any, creating: boolean): { fields?: Record<st
 app.post('/api/x/admin/discount-codes', async (req, res) => {
   try {
     const user = await getAuthedUser(req.headers.authorization);
-    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
     const { fields, error: invalid } = cleanDiscountFields(req.body || {}, true);
     if (invalid || !fields) return res.status(400).json({ error: invalid });
     const { data, error } = await getSupabase().from('discount_codes').insert(fields).select().single();
@@ -655,7 +835,7 @@ app.post('/api/x/admin/discount-codes', async (req, res) => {
 app.put('/api/x/admin/discount-codes/:id', async (req, res) => {
   try {
     const user = await getAuthedUser(req.headers.authorization);
-    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
     const body = { ...(req.body || {}) };
     delete body.code; // a code's text never changes once created
     const { fields, error: invalid } = cleanDiscountFields(body, false);
@@ -672,7 +852,7 @@ app.put('/api/x/admin/discount-codes/:id', async (req, res) => {
 app.delete('/api/x/admin/discount-codes/:id', async (req, res) => {
   try {
     const user = await getAuthedUser(req.headers.authorization);
-    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
     const supabase = getSupabase();
     const { data: row } = await supabase.from('discount_codes').select('uses_count').eq('id', req.params.id).maybeSingle();
     if (!row) return res.status(404).json({ error: 'Code not found' });
@@ -689,7 +869,7 @@ app.delete('/api/x/admin/discount-codes/:id', async (req, res) => {
 app.post('/api/x/admin/discount-check', async (req, res) => {
   try {
     const user = await getAuthedUser(req.headers.authorization);
-    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
     const { code, eventId } = req.body || {};
     if (!code || !eventId) return res.status(400).json({ error: 'Enter a code and choose an event' });
     const { data, error } = await getSupabase().rpc('check_discount', { p_code: String(code), p_event: String(eventId) });
@@ -704,7 +884,7 @@ app.post('/api/x/admin/discount-check', async (req, res) => {
 app.post('/api/x/admin/discount-redeem', async (req, res) => {
   try {
     const user = await getAuthedUser(req.headers.authorization);
-    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    if (!isStaff(user)) return res.status(401).json({ error: 'Unauthorized' });
     const { code, eventId } = req.body || {};
     if (!code || !eventId) return res.status(400).json({ error: 'Enter a code and choose an event' });
     const { data, error } = await getSupabase().rpc('redeem_discount_gate', { p_code: String(code), p_event: String(eventId) });
@@ -778,6 +958,263 @@ app.put('/api/x/admin/brackets', async (req, res) => {
     if (deleteError) throw deleteError;
 
     res.json({ brackets: clean });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Companies, creatives and the contact inbox (migration 020) ──────────────
+// Companies are who sells on the platform. Company staff log in with the same
+// Supabase sign-in as everyone else; their email must be on that company's staff list.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const slugify = (t: string, fallback: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || fallback;
+async function uniqueSlug(supabase: any, table: string, base: string): Promise<string> {
+  const { data } = await supabase.from(table).select('id').eq('slug', base).maybeSingle();
+  return data ? `${base}-${Date.now().toString(36)}` : base;
+}
+function cleanStaff(input: unknown): { emails?: string[]; error?: string } {
+  if (input === undefined) return {};
+  const list = Array.isArray(input) ? input : String(input).split(/[\s,;]+/);
+  const emails = Array.from(new Set(list.map((e: any) => String(e).trim().toLowerCase()).filter(Boolean)));
+  const bad = emails.find((e) => !EMAIL_RE.test(e));
+  if (bad) return { error: `"${bad}" is not a valid email address` };
+  return { emails };
+}
+async function setStaff(supabase: any, companyId: string, emails: string[]) {
+  const { error: delErr } = await supabase.from('company_staff').delete().eq('company_id', companyId);
+  if (delErr) throw delErr;
+  if (emails.length) {
+    const { error } = await supabase.from('company_staff').insert(emails.map((email) => ({ company_id: companyId, email })));
+    if (error) throw error;
+  }
+}
+
+app.get('/api/x/admin/companies', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!canManageEvents(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const supabase = getSupabase();
+    let q = supabase.from('companies').select('*, company_staff(email)').order('name');
+    if (isCompanyAdmin(user)) q = q.in('id', user.companyIds || []);
+    const { data, error } = await q;
+    if (error) throw error;
+    const companies = (data || []).map((c: any) => ({ ...c, staff: (c.company_staff || []).map((r: any) => r.email), company_staff: undefined }));
+    res.json({ companies });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/x/admin/companies', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const name = String(req.body?.name ?? '').trim().slice(0, 120);
+    if (!name) return res.status(400).json({ error: 'The company needs a name' });
+    const staff = cleanStaff(req.body?.staff);
+    if (staff.error) return res.status(400).json({ error: staff.error });
+    const email = req.body?.contact_email ? String(req.body.contact_email).trim() : null;
+    if (email && !EMAIL_RE.test(email)) return res.status(400).json({ error: 'Contact email is not valid' });
+    const supabase = getSupabase();
+    const slug = await uniqueSlug(supabase, 'companies', slugify(name, 'company'));
+    const { data, error } = await supabase.from('companies')
+      .insert({ slug, name, logo_url: req.body?.logo_url || null, contact_email: email }).select().single();
+    if (error) throw error;
+    if (staff.emails?.length) await setStaff(supabase, data.id, staff.emails);
+    res.status(201).json({ company: { ...data, staff: staff.emails || [] } });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/x/admin/companies/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!canManageEvents(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const id = req.params.id;
+    if (!ownsCompany(user, id)) return res.status(403).json({ error: 'That is another company.' });
+    const body = req.body || {};
+    const fields: Record<string, unknown> = {};
+    if (body.logo_url !== undefined) fields.logo_url = body.logo_url || null;
+    if (body.contact_email !== undefined) {
+      const e = body.contact_email ? String(body.contact_email).trim() : null;
+      if (e && !EMAIL_RE.test(e)) return res.status(400).json({ error: 'Contact email is not valid' });
+      fields.contact_email = e;
+    }
+    // Renaming and the staff list are Hili's call, not the company's.
+    if (isHiliAdmin(user) && body.name !== undefined) {
+      const n = String(body.name).trim().slice(0, 120);
+      if (!n) return res.status(400).json({ error: 'The company needs a name' });
+      fields.name = n;
+    }
+    const staff = isHiliAdmin(user) ? cleanStaff(body.staff) : {};
+    if (staff.error) return res.status(400).json({ error: staff.error });
+    const supabase = getSupabase();
+    if (Object.keys(fields).length) {
+      const { error } = await supabase.from('companies').update(fields).eq('id', id);
+      if (error) throw error;
+    }
+    if (staff.emails) await setStaff(supabase, id, staff.emails);
+    const { data, error } = await supabase.from('companies').select('*, company_staff(email)').eq('id', id).single();
+    if (error) throw error;
+    res.json({ company: { ...data, staff: (data.company_staff || []).map((r: any) => r.email), company_staff: undefined } });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/x/admin/companies/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const supabase = getSupabase();
+    const [{ count: camps }, { count: evs }] = await Promise.all([
+      supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('company_id', req.params.id),
+      supabase.from('events').select('id', { count: 'exact', head: true }).eq('company_id', req.params.id),
+    ]);
+    if (camps || evs) return res.status(409).json({ error: 'This company still has campaigns or events. Move or remove them first.' });
+    const { error } = await supabase.from('companies').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Creatives page (public read happens in the browser; only Hili edits)
+function cleanCreative(body: any, creating: boolean): { fields?: Record<string, unknown>; error?: string } {
+  const f: Record<string, unknown> = {};
+  if (creating || body.name !== undefined) {
+    const n = String(body.name ?? '').trim().slice(0, 100);
+    if (!n) return { error: 'The creative needs a name' };
+    f.name = n;
+  }
+  if (body.craft !== undefined) f.craft = String(body.craft).trim().slice(0, 80) || 'Creative';
+  if (body.work !== undefined) f.work = body.work ? String(body.work).trim().slice(0, 300) : null;
+  if (body.photo_url !== undefined) f.photo_url = body.photo_url || null;
+  if (body.color !== undefined) {
+    if (!body.color) f.color = null;
+    else if (/^#[0-9a-fA-F]{6}$/.test(String(body.color))) f.color = String(body.color);
+    else return { error: 'Colour must look like #f26a1b' };
+  }
+  return { fields: f };
+}
+
+app.post('/api/x/admin/creatives', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { fields, error: invalid } = cleanCreative(req.body || {}, true);
+    if (invalid) return res.status(400).json({ error: invalid });
+    const supabase = getSupabase();
+    const { data: last } = await supabase.from('creatives').select('sort_order').order('sort_order', { ascending: false }).limit(1);
+    const next = ((last?.[0]?.sort_order as number) ?? -1) + 1;
+    const { data, error } = await supabase.from('creatives').insert({ ...fields, sort_order: next }).select().single();
+    if (error) throw error;
+    res.status(201).json({ creative: data });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Must come before the :id route. Body: { ids: [id, id, ...] } in the order to show.
+app.put('/api/x/admin/creatives/order', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+    if (!ids.length) return res.status(400).json({ error: 'ids is required' });
+    const supabase = getSupabase();
+    for (let i = 0; i < ids.length; i++) {
+      const { error } = await supabase.from('creatives').update({ sort_order: i }).eq('id', ids[i]);
+      if (error) throw error;
+    }
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/x/admin/creatives/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { fields, error: invalid } = cleanCreative(req.body || {}, false);
+    if (invalid) return res.status(400).json({ error: invalid });
+    const { data, error } = await getSupabase().from('creatives').update(fields).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ creative: data });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/x/admin/creatives/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { error } = await getSupabase().from('creatives').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Contact form: saved for the admin inbox and emailed to the Hili team inbox when Resend is set up.
+app.post('/api/contact', rateLimited, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (b.website) return res.json({ success: true }); // honeypot: real people never fill this hidden field
+    const name = String(b.name ?? '').trim().slice(0, 100);
+    const contact = String(b.contact ?? '').trim().slice(0, 150);
+    const company = b.company ? String(b.company).trim().slice(0, 150) : null;
+    const message = b.message ? String(b.message).trim().slice(0, 2000) : null;
+    if (!name || !contact) return res.status(400).json({ error: 'Add your name and a phone number or email so we can reply.' });
+    const supabase = getSupabase();
+    const { error } = await supabase.from('contact_messages').insert({ name, company, contact, message });
+    if (error) throw error;
+
+    const resendKey = process.env.RESEND_API_KEY;
+    if (resendKey) {
+      try {
+        const { Resend } = await import('resend');
+        const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+        await new Resend(resendKey).emails.send({
+          from: `${process.env.BRAND_NAME || 'Kuja by Hili'} <onboarding@resend.dev>`,
+          to: process.env.CONTACT_TO_EMAIL || 'hilistreaming.co@gmail.com',
+          subject: `New enquiry from ${name}${company ? ` (${company})` : ''}`,
+          html: `<p><b>${esc(name)}</b>${company ? ` from ${esc(company)}` : ''}</p><p>Reach them on: ${esc(contact)}</p><p>${esc(message || '(no message)').replace(/\n/g, '<br>')}</p>`,
+        });
+      } catch (e: any) {
+        console.error('Contact email failed (message is still saved):', e?.message);
+      }
+    }
+    res.status(201).json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Could not send that just now. Please WhatsApp us on 0796 429 978.' });
+  }
+});
+
+app.get('/api/x/admin/contact-messages', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { data, error } = await getSupabase().from('contact_messages').select('*').order('created_at', { ascending: false }).limit(200);
+    if (error) throw error;
+    res.json({ messages: data || [] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/x/admin/contact-messages/:id', async (req, res) => {
+  try {
+    const user = await getAuthedUser(req.headers.authorization);
+    if (!isHiliAdmin(user)) return res.status(401).json({ error: 'Unauthorized' });
+    const { error } = await getSupabase().from('contact_messages').update({ handled: Boolean(req.body?.handled) }).eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

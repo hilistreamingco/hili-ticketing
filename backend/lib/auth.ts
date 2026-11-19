@@ -8,7 +8,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 // version asks Supabase Auth to validate the token, then checks the email
 // against ADMIN_EMAILS / PRESTIGE_EMAILS.
 
-export type AuthRole = 'hili_admin' | 'prestige_admin';
+export type AuthRole = 'hili_admin' | 'prestige_admin' | 'company_admin';
 
 export interface VerifiedUser {
   uid: string;
@@ -17,6 +17,8 @@ export interface VerifiedUser {
 
 export interface AuthedUser extends VerifiedUser {
   role: AuthRole;
+  /** Set for company_admin: the companies this person may manage (and nothing else). */
+  companyIds?: string[];
 }
 
 let client: SupabaseClient | null = null;
@@ -66,16 +68,60 @@ export async function getAuthedUser(authHeader?: string): Promise<AuthedUser | n
   if (!user) return null;
   if (emailList('ADMIN_EMAILS').includes(user.email)) return { ...user, role: 'hili_admin' };
   if (emailList('PRESTIGE_EMAILS').includes(user.email)) return { ...user, role: 'prestige_admin' };
+  const companyIds = await companyIdsForEmail(user.email);
+  if (companyIds.length) return { ...user, role: 'company_admin', companyIds };
   return null;
+}
+
+/** Companies whose staff list (public.company_staff) contains this email. */
+export async function companyIdsForEmail(email: string): Promise<string[]> {
+  const supabase = getServiceClient();
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('company_staff').select('company_id').eq('email', email.toLowerCase());
+  if (error || !data) return [];
+  return data.map((r: any) => r.company_id as string);
 }
 
 export function isHiliAdmin(user: AuthedUser | null): user is AuthedUser {
   return user?.role === 'hili_admin';
 }
 
-/** Hili admins can also open the Prestige dashboard. */
+/** Hili admins and Prestige staff can open the Prestige dashboard. Company staff cannot. */
 export function canUsePrestige(user: AuthedUser | null): user is AuthedUser {
-  return Boolean(user);
+  return Boolean(user) && user!.role !== 'company_admin';
+}
+
+export function isCompanyAdmin(user: AuthedUser | null): user is AuthedUser {
+  return user?.role === 'company_admin';
+}
+
+/** Hili admin, or company staff (who are then limited by the owns* checks below). */
+export function canManageEvents(user: AuthedUser | null): user is AuthedUser {
+  return isHiliAdmin(user) || isCompanyAdmin(user);
+}
+
+/** True when this user may act on rows belonging to the given company. */
+export function ownsCompany(user: AuthedUser, companyId: string | null | undefined): boolean {
+  if (isHiliAdmin(user)) return true;
+  return Boolean(companyId) && Boolean(user.companyIds?.includes(companyId as string));
+}
+
+export async function ownsEvent(supabase: any, user: AuthedUser, eventId: string): Promise<boolean> {
+  if (isHiliAdmin(user)) return true;
+  const { data } = await supabase.from('events').select('company_id').eq('id', eventId).maybeSingle();
+  return ownsCompany(user, data?.company_id);
+}
+
+export async function ownsCampaign(supabase: any, user: AuthedUser, campaignId: string): Promise<boolean> {
+  if (isHiliAdmin(user)) return true;
+  const { data } = await supabase.from('campaigns').select('company_id').eq('id', campaignId).maybeSingle();
+  return ownsCompany(user, data?.company_id);
+}
+
+export async function ownsTier(supabase: any, user: AuthedUser, tierId: string): Promise<boolean> {
+  if (isHiliAdmin(user)) return true;
+  const { data } = await supabase.from('ticket_types').select('event_id').eq('id', tierId).maybeSingle();
+  return data?.event_id ? ownsEvent(supabase, user, data.event_id) : false;
 }
 
 export function isAllowListed(email: string): { admin: boolean; prestige: boolean } {

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../lib/auth.js';
+import { getAuthedUser, getServiceClient, isHiliAdmin, isCompanyAdmin, canManageEvents, ownsCompany, ownsCampaign } from '../lib/auth.js';
 import { cleanEventFields, derivePrefix, uniquePrefix } from '../lib/event-fields.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -9,7 +9,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const user = await getAuthedUser(req.headers.authorization as string);
-    if (!isHiliAdmin(user)) {
+    if (!canManageEvents(user)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -20,9 +20,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'GET') {
       // Soonest first; undated drafts last. Every event is listed, none is "special".
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
+      let query = supabase.from('events').select('*');
+      // Company staff only ever see their own company's events.
+      if (isCompanyAdmin(user)) query = query.in('company_id', user.companyIds || []);
+      const { data, error } = await query
         .order('event_date', { ascending: true, nullsFirst: false })
         .order('start_time', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: false });
@@ -36,6 +37,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { fields, error: invalid } = cleanEventFields(body);
       if (invalid) return res.status(400).json({ error: invalid });
       if (!fields.name) return res.status(400).json({ error: 'Event name is required' });
+
+      // Which company owns this event? Company staff are pinned to their own;
+      // Hili may pick one (or none for a Hili-only standalone event).
+      let companyId: string | null = body.company_id ? String(body.company_id) : null;
+      if (isCompanyAdmin(user)) {
+        if (!companyId || !ownsCompany(user, companyId)) companyId = user.companyIds?.[0] ?? null;
+      }
+      if (fields.campaign_id) {
+        if (!(await ownsCampaign(supabase, user, fields.campaign_id as string))) {
+          return res.status(403).json({ error: 'That campaign belongs to another company.' });
+        }
+      }
 
       const name = fields.name as string;
       const base = name
@@ -93,6 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           sales_close_at: fields.sales_close_at ?? null,
           sales_override: fields.sales_override ?? 'auto',
           campaign_id: fields.campaign_id ?? null,
+          company_id: companyId, // a database trigger overrides this with the campaign's company when there is one
         })
         .select()
         .single();

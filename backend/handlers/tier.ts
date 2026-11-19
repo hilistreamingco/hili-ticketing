@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../lib/auth.js';
+import { getAuthedUser, getServiceClient, canManageEvents, ownsTier } from '../lib/auth.js';
 import { cleanTierFields } from '../lib/tier-fields.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -9,7 +9,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const user = await getAuthedUser(req.headers.authorization as string);
-    if (!isHiliAdmin(user)) {
+    if (!canManageEvents(user)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -21,6 +21,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const supabase = getServiceClient();
     if (!supabase) {
       return res.status(500).json({ error: 'Missing Supabase config' });
+    }
+
+    if (!(await ownsTier(supabase, user, id))) {
+      return res.status(403).json({ error: 'That ticket belongs to another company.' });
     }
 
     // PUT - Update ticket type

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getVerifiedUser, isAllowListed } from '../lib/auth.js';
+import { getVerifiedUser, isAllowListed, companyIdsForEmail } from '../lib/auth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
@@ -21,6 +21,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (prestige) {
     return res.json({ role: 'prestige_admin', email: user.email });
+  }
+
+  const companyIds = await companyIdsForEmail(user.email);
+  if (companyIds.length) {
+    return res.json({ role: 'company_admin', email: user.email, companyIds });
   }
 
   return res.json({ role: 'user', email: user.email });

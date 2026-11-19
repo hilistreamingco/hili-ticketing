@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getAuthedUser, getServiceClient, isHiliAdmin } from '../lib/auth.js';
+import { getAuthedUser, getServiceClient, isHiliAdmin, canManageEvents, ownsEvent, ownsCampaign } from '../lib/auth.js';
 import { cleanEventFields, derivePrefix, uniquePrefix } from '../lib/event-fields.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -9,7 +9,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const user = await getAuthedUser(req.headers.authorization as string);
-    if (!isHiliAdmin(user)) {
+    if (!canManageEvents(user)) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -21,6 +21,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const supabase = getServiceClient();
     if (!supabase) {
       return res.status(500).json({ error: 'Missing Supabase config' });
+    }
+
+    if (!(await ownsEvent(supabase, user, id))) {
+      return res.status(403).json({ error: 'That event belongs to another company.' });
     }
 
     // GET - fetch single event
@@ -46,6 +50,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { fields, error: invalid } = cleanEventFields(req.body || {});
       if (invalid) return res.status(400).json({ error: invalid });
+
+      // Moving an event into a campaign: the campaign must be yours too.
+      if (fields.campaign_id && !(await ownsCampaign(supabase, user, fields.campaign_id as string))) {
+        return res.status(403).json({ error: 'That campaign belongs to another company.' });
+      }
+      // Only Hili can hand an event to a different company.
+      if (isHiliAdmin(user) && req.body && 'company_id' in req.body) {
+        fields.company_id = req.body.company_id ? String(req.body.company_id) : null;
+      }
 
       const finalType = (fields.event_type as string) ?? current.event_type;
       const finalMode = finalType === 'general'
